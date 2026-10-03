@@ -79,9 +79,9 @@ try {
   let res = await request('/pet-whale/account');
   assert.equal(res.status, 200);
   const snapshot = JSON.parse(res.body);
-  assert.deepEqual(snapshot.user, { name: '已登录用户' });
+  assert.deepEqual(snapshot.user, { name: 'a***@example.invalid' });
   assert.equal(snapshot.balance.total, '10.00');
-  assert.equal(res.body.includes('audit@example.invalid'), false, 'Contact must not become the display name');
+  assert.equal(res.body.includes('audit@example.invalid'), false, 'Only a masked contact may become the display name');
   assert.equal(res.headers['Access-Control-Allow-Origin'], undefined);
   assert.equal(res.headers['Cache-Control'], 'no-store');
   const effectCount = effects;
@@ -121,7 +121,7 @@ try {
   relay.dispose();
   assert.equal(openStream.ended, true);
   assert.equal(routes.size, 0);
-  assert.deepEqual((await getAccountSnapshot(ctx)).user, { name: '已登录用户' });
+  assert.deepEqual((await getAccountSnapshot(ctx)).user, { name: 'a***@example.invalid' });
   console.log('PASS: all 14 routes deny missing/forged/expired credentials and foreign origins; authorized actions, private-data minimization, SSE expiry and auth-service failures');
 } finally {
   relay.dispose();

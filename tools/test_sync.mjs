@@ -174,6 +174,39 @@ assert.equal(authedSnapshot.balance.normal, '88.50');
 assert.equal(authedSnapshot.balance.bonus, '12.00');
 assert.equal(authedSnapshot.balance.total, '100.50');
 
+// Real Harness profiles can have no identity.name and only a phone/email contact.
+for (const [profile, expected] of [
+  [{ name: null, contact: '13800000000' }, '138****0000'],
+  [{ name: '  ', contact: ' +86 138-0000-0000 ' }, '+86 138****0000'],
+  [{ contact: 'audit@example.invalid' }, 'a***@example.invalid'],
+  [{ contact: '鲸鱼@example.invalid' }, '鲸***@example.invalid'],
+  [{ contact: '138****0000' }, '138****0000'],
+  [{ contact: 'a***@example.invalid' }, 'a***@example.invalid'],
+  [{ name: '13800000000' }, '138****0000'],
+  [{ name: 'audit@example.invalid' }, 'a***@example.invalid'],
+  [{ name: '小鲸鱼🐳', contact: '13800000000' }, '小鲸鱼🐳'],
+  [{ contact: 'unknown-contact' }, 'u***t'],
+  [{ contact: 'ab' }, '***'],
+  [{ name: {}, contact: null }, '已登录用户'],
+  [{}, '已登录用户']
+]) {
+  for (const wrapped of [false, true]) {
+    const snapshot = await getAccountSnapshot({ get: () => ({
+      getState: async () => ({ status: 'credential-stored' }),
+      getProfile: async () => wrapped ? { status: 'ready', value: profile } : profile
+    }) });
+    assert.deepEqual(snapshot.user, { name: expected });
+    if (profile.contact && profile.contact.trim() !== expected) {
+      assert.equal(JSON.stringify(snapshot).includes(profile.contact.trim()), false, 'Raw contact must not leave host');
+    }
+  }
+}
+const profileFailure = await getAccountSnapshot({ get: () => ({
+  getState: async () => ({ status: 'credential-stored' }),
+  getProfile: async () => { throw new Error('Fixture profile unavailable'); }
+}) });
+assert.deepEqual(profileFailure.user, { name: '已登录用户' });
+
 // Test 7: PetManager class structure test
 const pm = new PetManager({ platform: 'linux' });
 assert.equal(pm.isAlive(), false);

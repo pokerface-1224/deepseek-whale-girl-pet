@@ -61,6 +61,30 @@ function buildClientMetadata() {
   };
 }
 
+function accountDisplayName(profile) {
+  const name = typeof profile?.name === 'string' ? profile.name.trim() : '';
+  const contact = typeof profile?.contact === 'string' ? profile.contact.trim() : '';
+  const label = name || contact;
+  if (!label) return '已登录用户';
+
+  // Harness may supply a nickname, a contact-only profile, or an already masked contact.
+  // Send only the safe label to the HTTP/SSE/native consumers, never the raw contact.
+  if (/[*•●]/u.test(label)) return label;
+  const email = /^([^@\s]+)@([^@\s]+)$/.exec(label);
+  if (email) return `${Array.from(email[1])[0]}***@${email[2]}`;
+  const phone = label.replace(/[\s()+-]/g, '');
+  const mobile = /^(86)?(1\d{10})$/.exec(phone);
+  if (mobile) return `${mobile[1] ? '+86 ' : ''}${mobile[2].slice(0, 3)}****${mobile[2].slice(-4)}`;
+  if (/^\d{7,15}$/.test(phone)) {
+    return phone.length >= 10 ? `${phone.slice(0, 3)}****${phone.slice(-4)}`
+      : `${phone.slice(0, 2)}****${phone.slice(-2)}`;
+  }
+  if (name) return name;
+  // Unknown contact formats still need masking rather than being exposed as a nickname.
+  const chars = Array.from(contact);
+  return chars.length > 2 ? `${chars[0]}***${chars.at(-1)}` : '***';
+}
+
 export async function getAccountSnapshot(ctx) {
   try {
     const account = ctx.get('deepseekAccount');
@@ -85,7 +109,7 @@ export async function getAccountSnapshot(ctx) {
       const p = profileRes.value.value || profileRes.value;
       if (p) {
         user = {
-          name: p.name || '已登录用户'
+          name: accountDisplayName(p)
         };
       }
     }
