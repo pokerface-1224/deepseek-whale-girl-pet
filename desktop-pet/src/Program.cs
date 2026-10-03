@@ -214,6 +214,8 @@ namespace WhalePet
         // Node writes UTF-8, independent of the Windows console's OEM code page.
         internal static StreamReader CreateReader(Stream input)
         {
+            // GUI processes can have redirected pipes but no console handle:
+            // decode the stream directly instead of setting Console.*Encoding.
             return new StreamReader(input, new UTF8Encoding(false), false);
         }
     }
@@ -1552,7 +1554,6 @@ namespace WhalePet
         {
             try
             {
-                Console.OutputEncoding = new UTF8Encoding(false);
                 EnableHighDpi();
                 PetForm.WakeWindowMessage = PetForm.RegisterWindowMessage("DSH_WHALE_PET_WAKE_MESSAGE");
                 bool created;
