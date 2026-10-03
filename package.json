@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-pet-whale",
-  "version": "1.2.2",
+  "version": "1.3.0-beta.1",
   "private": true,
   "description": "鲸鱼娘桌宠：随 Harness 启动，在 Windows 桌面显示可拖动、可互动的透明鲸鱼女仆窗口。",
   "type": "module",
@@ -14,6 +14,9 @@
     "index.js",
     "native-host.js",
     "desktop-pet/WhalePet.exe",
+    "desktop-pet/*.dll",
+    "desktop-pet/WebView2-LICENSE.txt",
+    "desktop-pet/WebView2-NOTICE.txt",
     "desktop-pet/art/*.png",
     "desktop-pet/src/*.cs",
     "desktop-pet/tools/build-desktop-pet.ps1",

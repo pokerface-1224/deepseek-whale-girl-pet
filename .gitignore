@@ -11,3 +11,4 @@ desktop-pet/package.json
 desktop-pet/pnpm-lock.yaml
 desktop-pet/pnpm-workspace.yaml
 release/
+desktop-pet/.webview2/

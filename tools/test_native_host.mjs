@@ -25,6 +25,30 @@ assert.match(warnings[0], /ENOENT/);
 startDesktopPet({ platform: 'win32', launch() { throw new Error('denied'); }, warn: text => warnings.push(text) })();
 assert.match(warnings[1], /denied/);
 
+const transport = new EventEmitter();
+transport.stdin = new EventEmitter();
+const responses = [];
+transport.stdin.write = value => responses.push(value);
+transport.stdin.end = () => {};
+transport.stdout = new EventEmitter();
+transport.stdout.setEncoding = () => {};
+startDesktopPet({ platform: 'win32', launch: () => transport,
+  getPanelUrl: () => 'http://127.0.0.1:19387/?test-auth=fixture' });
+transport.stdout.emit('data', 'pet:mini-');
+assert.equal(responses.length, 0);
+transport.stdout.emit('data', 'panel\r\n');
+assert.equal(responses[0], 'panel:http://127.0.0.1:19387/?test-auth=fixture\n');
+transport.stdout.emit('data', '[pet] unrelated output\n');
+assert.equal(responses.length, 1);
+const rejected = new EventEmitter();
+rejected.stdin = transport.stdin;
+rejected.stdout = new EventEmitter();
+rejected.stdout.setEncoding = () => {};
+startDesktopPet({ platform: 'win32', launch: () => rejected, getPanelUrl: () => 'https://example.com' });
+rejected.stdout.emit('data', 'pet:mini-panel\n');
+assert.match(responses[1], /^panel-error:/);
+console.log('PASS: mini-panel pipe framing, authenticated loopback URL and external endpoint rejection');
+
 if (process.platform === 'win32') {
   const folder = mkdtempSync(join(tmpdir(), 'whale-test-'));
   const log = join(folder, 'startup.log');

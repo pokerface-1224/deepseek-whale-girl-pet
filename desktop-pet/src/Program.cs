@@ -170,6 +170,8 @@ namespace WhalePet
         private DateTime stateSince = DateTime.Now;
         private int nextActivity;
         private Bitmap frame;
+        private MiniPanel miniPanel;
+        internal bool HasHostPipe;
 
         private bool dragging;
         private Point dragCursorStart;
@@ -269,13 +271,27 @@ namespace WhalePet
 
             menu.Items.Add(new ToolStripSeparator());
 
-            ToolStripMenuItem openHarness = new ToolStripMenuItem("打开 DeepSeek Harness");
+            ToolStripMenuItem openHarness = new ToolStripMenuItem("打开 dsh 窗口");
             openHarness.Click += delegate
             {
                 try { HarnessWindow.Open(); }
                 catch (Exception error) { Say("无法打开 Harness：" + error.Message, 5000); }
             };
-            menu.Items.Add(openHarness);
+            menu.Items.Insert(0, openHarness);
+            ToolStripMenuItem mini = new ToolStripMenuItem("迷你面板");
+            mini.Click += delegate
+            {
+                if (miniPanel != null && !miniPanel.IsDisposed) { miniPanel.Show(); miniPanel.Activate(); return; }
+                if (!HasHostPipe)
+                {
+                    MessageBox.Show("请通过 DSH 插件启动桌宠，以连接当前会话。", "迷你面板", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                Console.WriteLine("pet:mini-panel");
+                Console.Out.Flush();
+            };
+            menu.Items.Insert(1, mini);
+            menu.Items.Insert(2, new ToolStripSeparator());
 
             ToolStripMenuItem home = new ToolStripMenuItem("回到右下角");
             home.Click += delegate { MoveToDefaultCorner(); };
@@ -299,6 +315,22 @@ namespace WhalePet
             };
             quit.ForeColor = Color.FromArgb(183, 94, 120);
             ContextMenuStrip = menu;
+        }
+
+        internal void ReceiveHostMessage(string line)
+        {
+            if (line.StartsWith("panel-error:", StringComparison.Ordinal))
+            {
+                MessageBox.Show("DSH 会话服务尚未就绪，请稍后重试。", "迷你面板");
+                return;
+            }
+            if (!line.StartsWith("panel:", StringComparison.Ordinal)) return;
+            if (miniPanel == null || miniPanel.IsDisposed) miniPanel = new MiniPanel(line.Substring(6));
+            Rectangle area = Screen.FromControl(this).WorkingArea;
+            miniPanel.Location = new Point(Math.Max(area.Left, Math.Min(area.Right - miniPanel.Width, Left - miniPanel.Width - 8)),
+                Math.Max(area.Top, Math.Min(area.Bottom - miniPanel.Height, Top)));
+            miniPanel.Show(this);
+            miniPanel.Activate();
         }
 
         private static string Label(string pose)
@@ -766,6 +798,7 @@ namespace WhalePet
                 if (animation != null) animation.Dispose();
                 if (frame != null) frame.Dispose();
                 if (idle != null) idle.Dispose();
+                if (miniPanel != null) miniPanel.Dispose();
                 foreach (Pose pose in poses.Values) if (pose.Image != null) pose.Image.Dispose();
             }
             base.Dispose(disposing);
@@ -877,13 +910,24 @@ namespace WhalePet
                 Application.SetCompatibleTextRenderingDefault(false);
 
                 PetForm form = new PetForm();
+                form.HasHostPipe = hostPipe;
                 Timer hostTimer = new Timer { Interval = 250 };
                 if (hostPipe)
                 {
                     var reader = new System.Threading.Thread(delegate()
                     {
-                        try { while (Console.In.ReadLine() != null) { } }
+                        try
+                        {
+                            string line;
+                            while ((line = Console.In.ReadLine()) != null)
+                            {
+                                string message = line;
+                                if (!form.IsDisposed && form.IsHandleCreated)
+                                    form.BeginInvoke(new Action(delegate { if (!form.IsDisposed) form.ReceiveHostMessage(message); }));
+                            }
+                        }
                         catch (IOException) { }
+                        catch (InvalidOperationException) { }
                         finally { hostClosed = true; }
                     });
                     reader.IsBackground = true;
