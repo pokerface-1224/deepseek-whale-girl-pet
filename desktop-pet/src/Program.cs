@@ -227,19 +227,34 @@ namespace WhalePet
             KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Escape) Close(); };
 
             ContextMenuStrip menu = new ContextMenuStrip();
-            ToolStripMenuItem header = new ToolStripMenuItem("鲸鱼娘  ·  桌面小憩") { Enabled = false, Tag = "header" };
-            menu.Items.Add(header);
-            menu.Items.Add(new ToolStripSeparator());
-
-            ToolStripMenuItem activities = new ToolStripMenuItem("状态");
-            foreach (PetState value in Enum.GetValues(typeof(PetState)))
+            ToolStripMenuItem openHarness = new ToolStripMenuItem("打开 dsh 窗口");
+            openHarness.Click += delegate
             {
-                PetState selected = value;
-                ToolStripMenuItem item = new ToolStripMenuItem(StateLabel(value));
-                item.Click += delegate { SetActivity(selected); };
-                activities.DropDownItems.Add(item);
-            }
-            menu.Items.Add(activities);
+                try { HarnessWindow.Open(); }
+                catch (Exception error) { Say("无法打开 Harness：" + error.Message, 5000); }
+            };
+            menu.Items.Add(openHarness);
+
+            ToolStripMenuItem mini = new ToolStripMenuItem("迷你面板");
+            mini.Click += delegate
+            {
+                if (miniPanel != null && !miniPanel.IsDisposed)
+                {
+                    miniPanel.UpdatePosition(this);
+                    miniPanel.Show(this);
+                    miniPanel.Activate();
+                    return;
+                }
+                if (!HasHostPipe)
+                {
+                    MessageBox.Show("请通过 DSH 插件启动桌宠，以连接当前会话。", "迷你面板", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                Console.WriteLine("pet:mini-panel");
+                Console.Out.Flush();
+            };
+            menu.Items.Add(mini);
+            menu.Items.Add(new ToolStripSeparator());
 
             ToolStripMenuItem view = new ToolStripMenuItem("视角");
             foreach (string name in new string[] { "front", "side", "back" })
@@ -277,34 +292,6 @@ namespace WhalePet
 
             menu.Items.Add(new ToolStripSeparator());
 
-            ToolStripMenuItem openHarness = new ToolStripMenuItem("打开 dsh 窗口");
-            openHarness.Click += delegate
-            {
-                try { HarnessWindow.Open(); }
-                catch (Exception error) { Say("无法打开 Harness：" + error.Message, 5000); }
-            };
-            menu.Items.Insert(0, openHarness);
-            ToolStripMenuItem mini = new ToolStripMenuItem("迷你面板");
-            mini.Click += delegate
-            {
-                if (miniPanel != null && !miniPanel.IsDisposed)
-                {
-                    miniPanel.UpdatePosition(this);
-                    miniPanel.Show(this);
-                    miniPanel.Activate();
-                    return;
-                }
-                if (!HasHostPipe)
-                {
-                    MessageBox.Show("请通过 DSH 插件启动桌宠，以连接当前会话。", "迷你面板", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-                Console.WriteLine("pet:mini-panel");
-                Console.Out.Flush();
-            };
-            menu.Items.Insert(1, mini);
-            menu.Items.Insert(2, new ToolStripSeparator());
-
             ToolStripMenuItem home = new ToolStripMenuItem("回到右下角");
             home.Click += delegate { MoveToDefaultCorner(); };
             menu.Items.Add(home);
@@ -320,8 +307,6 @@ namespace WhalePet
             WhaleMenuRenderer.Style(menu);
             menu.Opening += delegate
             {
-                for (int i = 0; i < activities.DropDownItems.Count; i++)
-                    ((ToolStripMenuItem)activities.DropDownItems[i]).Checked = (int)activity == i;
                 string[] views = { "front", "side", "back" };
                 for (int i = 0; i < views.Length; i++)
                     ((ToolStripMenuItem)view.DropDownItems[i]).Checked = prefs.Pose == views[i];
