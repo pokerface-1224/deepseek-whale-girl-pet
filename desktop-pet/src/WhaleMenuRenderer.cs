@@ -66,15 +66,23 @@ namespace WhalePet
         {
             if ((string)e.Item.Tag == "header") e.TextColor = Blue;
             else e.TextColor = e.Item.ForeColor;
-            TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, e.TextRectangle, e.TextColor,
+
+            // Vertically center text to the exact middle of the entire menu item height
+            Rectangle textRect = new Rectangle(
+                e.TextRectangle.X,
+                0,
+                e.TextRectangle.Width,
+                e.Item.Height);
+
+            TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, textRect, e.TextColor,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.SingleLine);
         }
 
         protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle r = e.ImageRectangle;
-            int x = r.X + r.Width / 2, y = r.Y + r.Height / 2;
+            int x = e.ImageRectangle.X + e.ImageRectangle.Width / 2;
+            int y = e.Item.Height / 2;
             using (Brush fill = new SolidBrush(Blue)) e.Graphics.FillEllipse(fill, x - 8, y - 8, 16, 16);
             using (Pen tick = new Pen(Color.White, 2f))
             {
@@ -87,7 +95,7 @@ namespace WhalePet
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int x = e.ArrowRectangle.Left + e.ArrowRectangle.Width / 2;
-            int y = e.ArrowRectangle.Top + e.ArrowRectangle.Height / 2;
+            int y = e.Item.Height / 2;
             using (Pen pen = new Pen(Blue, 1.7f))
                 e.Graphics.DrawLines(pen, new Point[] { new Point(x - 2, y - 4), new Point(x + 2, y), new Point(x - 2, y + 4) });
         }
