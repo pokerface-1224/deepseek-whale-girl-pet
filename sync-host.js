@@ -2,12 +2,27 @@
 // Coordinates active session across connected UI clients & daemon process control
 
 export function setupSyncRelay(ctx, petManager) {
+  let relay = null;
+  // webServer can appear after this plugin starts. Cordis also re-enters
+  // this scope when the service is replaced, disposing the old routes first.
+  const stop = ctx.inject(['webServer'], scope => {
+    const current = createSyncRelay(scope, petManager);
+    relay = current;
+    scope.effect(() => () => {
+      current.dispose();
+      if (relay === current) relay = null;
+    });
+  });
+  return {
+    getLastSelection: () => relay?.getLastSelection() ?? null,
+    dispose: () => stop.dispose()
+  };
+}
+
+function createSyncRelay(ctx, petManager) {
   const server = ctx.get('webServer');
   if (!server || typeof server.register !== 'function') {
-    return {
-      getLastSelection: () => null,
-      dispose: () => {}
-    };
+    throw new Error('[pet-whale] webServer.register unavailable');
   }
 
   let lastSelection = null;
@@ -27,7 +42,8 @@ export function setupSyncRelay(ctx, petManager) {
     }
 
     clients.add(res);
-    req.on('close', () => {
+    res.flushHeaders?.();
+    res.on('close', () => {
       clients.delete(res);
     });
   };
@@ -95,20 +111,15 @@ export function setupSyncRelay(ctx, petManager) {
   };
 
   // Register exactly one handler per path (webserver throws on duplicate paths)
-  for (const path of ['/pet-whale/sync', '/api/pet-whale/sync']) {
-    try {
-      disposers.push(server.register({ kind: 'exact', path, handler: handleSync }));
-    } catch (e) {}
-  }
-  for (const path of ['/pet-whale/launch', '/api/pet-whale/launch']) {
-    try {
-      disposers.push(server.register({ kind: 'exact', path, handler: handleLaunch }));
-    } catch (e) {}
-  }
-  for (const path of ['/pet-whale/status', '/api/pet-whale/status']) {
-    try {
-      disposers.push(server.register({ kind: 'exact', path, handler: handleStatus }));
-    } catch (e) {}
+  try {
+    for (const [name, handler] of [['sync', handleSync], ['launch', handleLaunch], ['status', handleStatus]]) {
+      for (const path of [`/pet-whale/${name}`, `/api/pet-whale/${name}`]) {
+        disposers.push(server.register({ kind: 'exact', path, handler }));
+      }
+    }
+  } catch (error) {
+    for (const dispose of disposers.reverse()) dispose();
+    throw error;
   }
 
   return {

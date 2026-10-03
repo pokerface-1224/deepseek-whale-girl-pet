@@ -22,7 +22,7 @@ export function apply(ctx) {
 
     ctx.effect(() => () => {
       petController.stop();
-      syncRelay.dispose();
+      return syncRelay.dispose();
     });
   } catch (error) {
     console.warn('[pet-whale] desktop lifecycle unavailable:', error);

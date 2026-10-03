@@ -12,8 +12,21 @@ const mockServer = {
   }
 };
 
+let activate;
+let cleanup;
+let stopped = false;
 const mockCtx = {
-  get: (name) => (name === 'webServer' ? mockServer : null)
+  inject(names, callback) {
+    assert.deepEqual(names, ['webServer']);
+    activate = () => {
+      assert.equal(stopped, false);
+      callback({
+        get: name => name === 'webServer' ? mockServer : null,
+        effect: setup => { cleanup = setup(); }
+      });
+    };
+    return { dispose() { stopped = true; cleanup?.(); } };
+  }
 };
 
 // Mock PetManager
@@ -30,6 +43,9 @@ const mockPetManager = {
 };
 
 const relay = setupSyncRelay(mockCtx, mockPetManager);
+assert.equal(routes.size, 0, 'Wait for webServer instead of silently abandoning registration');
+assert.equal(relay.getLastSelection(), null);
+activate();
 assert.ok(routes.has('/pet-whale/sync'), '/pet-whale/sync route exists');
 assert.ok(routes.has('/pet-whale/launch'), '/pet-whale/launch route exists');
 assert.ok(routes.has('/pet-whale/status'), '/pet-whale/status route exists');
@@ -107,4 +123,22 @@ assert.equal(res.ok, false, 'Non-win32 should not launch');
 
 relay.dispose();
 assert.equal(routes.size, 0, 'Disposal should remove all routes');
+
+// Service replacement must remove old routes and register on the new scope.
+stopped = false;
+const restarting = setupSyncRelay(mockCtx, mockPetManager);
+activate();
+cleanup();
+assert.equal(routes.size, 0);
+activate();
+assert.equal(routes.size, 6);
+restarting.dispose();
+
+// Registration errors must surface, and partial registrations must be undone.
+stopped = false;
+const occupied = { path: '/pet-whale/launch' };
+routes.set(occupied.path, occupied);
+setupSyncRelay(mockCtx, mockPetManager);
+assert.throws(activate, /duplicate route/);
+assert.deepEqual([...routes.values()], [occupied]);
 console.log('PASS: Host sync relay & daemon control (SSE + POST + launch + status + dispose)');

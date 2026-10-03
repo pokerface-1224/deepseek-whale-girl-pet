@@ -15,6 +15,25 @@ window.__ModuleLoader__.load({
 
     const inject = ["uiWorkspace"];
 
+    async function postPet(path, body) {
+      const response = await fetch(`/pet-whale/${path}`, {
+        method: "POST",
+        credentials: "include",
+        ...(body === undefined ? {} : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        })
+      });
+      if (!response.ok) throw new Error(`pet-whale/${path}: HTTP ${response.status}`);
+      const result = await response.json();
+      if (result.ok === false) throw new Error(`pet-whale/${path}: ${result.error || result.status || "failed"}`);
+      return result;
+    }
+
+    function launchPet() {
+      return postPet("launch").catch(error => console.error("[pet-whale] Launch failed:", error));
+    }
+
     // Whale-girl Icon inspired by character sheet & maid apron badge
     function WhaleIcon({ size = 18, color = "#2563eb" }) {
       if (!jsx) return null;
@@ -73,8 +92,7 @@ window.__ModuleLoader__.load({
 
       const triggerLaunch = () => {
         setClicking(true);
-        fetch("/pet-whale/launch", { method: "POST", credentials: "include" })
-          .catch(() => {})
+        launchPet()
           .finally(() => {
             setTimeout(() => setClicking(false), 300);
           });
@@ -116,17 +134,15 @@ window.__ModuleLoader__.load({
           if (!sessionId || sessionId === lastSessionId) return;
           lastSessionId = sessionId;
 
-          fetch("/pet-whale/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              clientId,
-              sessionId,
-              subagentAddress: selection.subagentAddress,
-              timestamp: Date.now()
-            })
-          }).catch(() => {});
+          postPet("sync", {
+            clientId,
+            sessionId,
+            subagentAddress: selection.subagentAddress,
+            timestamp: Date.now()
+          }).catch(error => {
+            if (lastSessionId === sessionId) lastSessionId = null;
+            console.warn("[pet-whale-sync] Selection sync failed:", error);
+          });
         };
 
         const unsub = uiWorkspace.selection.subscribe((selection) => {
@@ -136,7 +152,6 @@ window.__ModuleLoader__.load({
         try {
           const init = uiWorkspace.selection.getSnapshot?.();
           if (init?.sessionId) {
-            lastSessionId = init.sessionId;
             reportSelection(init);
           }
         } catch (e) {}
@@ -212,7 +227,7 @@ window.__ModuleLoader__.load({
               ui: {
                 kind: "action",
                 run: () => {
-                  fetch("/pet-whale/launch", { method: "POST", credentials: "include" }).catch(() => {});
+                  return launchPet();
                 }
               }
             }), "pet-whale: slash command /whale-girl");
@@ -235,7 +250,7 @@ window.__ModuleLoader__.load({
                 "desktop:windows": { code: "KeyW", modifiers: ["alt"] }
               },
               run: () => {
-                fetch("/pet-whale/launch", { method: "POST", credentials: "include" }).catch(() => {});
+                return launchPet();
               }
             }), "pet-whale: shortcut Alt+W");
           }
