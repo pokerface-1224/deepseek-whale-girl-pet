@@ -161,24 +161,28 @@ namespace WhalePet
             Screen screen = Screen.FromControl(target);
             Rectangle area = screen.WorkingArea;
 
-            int gap = 10;
+            int gap = 8;
+            PetForm pet = target as PetForm;
+            Rectangle visual = pet != null ? pet.ScreenSpriteBounds : target.Bounds;
+
             int targetX;
             // Prefer left side of pet if space allows
-            if (target.Left - area.Left >= Width + gap)
+            if (visual.Left - area.Left >= Width + gap)
             {
-                targetX = target.Left - Width - gap;
+                targetX = visual.Left - Width - gap;
             }
-            else if (area.Right - target.Right >= Width + gap)
+            else if (area.Right - visual.Right >= Width + gap)
             {
                 // Dock on right side if left is crowded
-                targetX = target.Right + gap;
+                targetX = visual.Right + gap;
             }
             else
             {
-                targetX = Math.Max(area.Left + 8, Math.Min(area.Right - Width - 8, target.Left - Width - gap));
+                targetX = Math.Max(area.Left + 8, Math.Min(area.Right - Width - 8, visual.Left - Width - gap));
             }
 
-            int targetY = Math.Max(area.Top + 8, Math.Min(area.Bottom - Height - 8, target.Top));
+            int targetY = visual.Bottom - Height;
+            targetY = Math.Max(area.Top + 8, Math.Min(area.Bottom - Height - 8, targetY));
             Location = new Point(targetX, targetY);
         }
 

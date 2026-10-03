@@ -541,6 +541,15 @@ namespace WhalePet
                 top + (int)Math.Ceiling(source.Bottom * height / (double)current.Image.Height));
         }
 
+        internal Rectangle ScreenSpriteBounds
+        {
+            get
+            {
+                Rectangle v = VisibleSpriteBounds();
+                return new Rectangle(Location.X + v.Left, Location.Y + v.Top, v.Width, v.Height);
+            }
+        }
+
         private void RememberPosition()
         {
             prefs.X = Location.X;
@@ -565,6 +574,7 @@ namespace WhalePet
             Touch();
             Say(name == "front" ? "正面登场！" : name == "side" ? "从这边看也好看～" : "看我的鲸鱼尾巴！", 2000);
             SaveAndInvalidate();
+            if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible) miniPanel.UpdatePosition(this);
         }
 
         private void Say(string text, int milliseconds)
@@ -602,6 +612,7 @@ namespace WhalePet
             else current = poses.ContainsKey(prefs.Pose) ? poses[prefs.Pose] : poses["front"];
             ApplySize();
             RenderFrame();
+            if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible) miniPanel.UpdatePosition(this);
         }
 
         private void AdvanceActivity(DateTime now)
