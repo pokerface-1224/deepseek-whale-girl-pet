@@ -4,12 +4,25 @@ import { basename } from 'node:path';
 
 // Daemon-controlled manager for the Windows desktop pet process.
 export class PetManager {
-  constructor({ platform = process.platform, launch = spawn, warn = console.warn, getPanelUrl, getLastSelection, timeoutMs = 15000 } = {}) {
+  constructor({
+    platform = process.platform,
+    launch = spawn,
+    warn = console.warn,
+    getPanelUrl,
+    getLastSelection,
+    getAccountInfo,
+    triggerLogin,
+    triggerLogout,
+    timeoutMs = 15000
+  } = {}) {
     this.platform = platform;
     this.launch = launch;
     this.warn = warn;
     this.getPanelUrl = getPanelUrl;
     this.getLastSelection = getLastSelection;
+    this.getAccountInfo = getAccountInfo;
+    this.triggerLogin = triggerLogin;
+    this.triggerLogout = triggerLogout;
     this.child = null;
     this.stopped = false;
     this.timeoutMs = timeoutMs;
@@ -29,6 +42,19 @@ export class PetManager {
         this.child.stdin.write(msg.endsWith('\n') ? msg : msg + '\n');
       } catch (e) {
         this.warn(`[pet-whale] sendPetMessage error: ${e.message}`);
+      }
+    }
+  }
+
+  async sendAccountInfo() {
+    if (typeof this.getAccountInfo === 'function') {
+      try {
+        const info = await this.getAccountInfo();
+        if (info) {
+          this.sendPetMessage(`account:info:${JSON.stringify(info)}\n`);
+        }
+      } catch (err) {
+        this.warn(`[pet-whale] getAccountInfo error: ${err.message}`);
       }
     }
   }
@@ -99,11 +125,26 @@ export class PetManager {
           if (message === 'pet:ready' || message === 'pet:forwarded') {
             this.ready = message === 'pet:ready';
             finish({ ok: true, status: this.ready ? 'launched' : 'woken' });
+            if (this.ready) {
+              this.sendAccountInfo();
+            }
             continue;
           }
           if (message.startsWith('pet:awake:')) {
             const request = this.pending.get(message.slice('pet:awake:'.length));
             if (request?.child === child) request.finish({ ok: true, status: 'woken' });
+            continue;
+          }
+          if (message === 'pet:account:query') {
+            this.sendAccountInfo();
+            continue;
+          }
+          if (message === 'pet:account:login') {
+            try { this.triggerLogin?.(); } catch (err) { this.warn(`[pet-whale] login error: ${err.message}`); }
+            continue;
+          }
+          if (message === 'pet:account:logout') {
+            try { this.triggerLogout?.(); } catch (err) { this.warn(`[pet-whale] logout error: ${err.message}`); }
             continue;
           }
           if (message !== 'pet:mini-panel') continue;

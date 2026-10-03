@@ -131,7 +131,17 @@ await statusRoute.handler({ method: 'GET' }, {
 });
 assert.match(statusResBody, /"running":true/);
 
-// Test 6: PetManager class structure test
+// Test 6: Account route
+const accountRoute = routes.get('/pet-whale/account');
+assert.ok(accountRoute, 'GET /pet-whale/account route exists');
+let accountResBody = '';
+await accountRoute.handler({ method: 'GET' }, {
+  writeHead: () => {},
+  end: (data) => { accountResBody = data; }
+});
+assert.match(accountResBody, /"authenticated":false/);
+
+// Test 7: PetManager class structure test
 const pm = new PetManager({ platform: 'linux' });
 assert.equal(pm.isAlive(), false);
 const res = await pm.launchOrWake();
@@ -147,7 +157,7 @@ activate();
 cleanup();
 assert.equal(routes.size, 0);
 activate();
-assert.equal(routes.size, 8);
+assert.equal(routes.size, 14);
 restarting.dispose();
 
 // Registration errors must surface, and partial registrations must be undone.

@@ -153,9 +153,69 @@ namespace WhalePet
         }
     }
 
+    /// <summary>DeepSeek account info and wallet balance data.</summary>
+    internal sealed class AccountData
+    {
+        public bool Authenticated = false;
+        public string Name = "";
+        public string Contact = "";
+        public decimal NormalBalance = 0m;
+        public decimal BonusBalance = 0m;
+        public decimal TotalBalance = 0m;
+        public string Currency = "CNY";
+
+        public static AccountData Parse(string json)
+        {
+            AccountData data = new AccountData();
+            if (string.IsNullOrEmpty(json)) return data;
+            try
+            {
+                data.Authenticated = json.Contains("\"authenticated\":true");
+
+                int nameIdx = json.IndexOf("\"name\":");
+                if (nameIdx >= 0)
+                {
+                    int start = json.IndexOf('"', nameIdx + 7) + 1;
+                    int end = json.IndexOf('"', start);
+                    if (start > 0 && end > start) data.Name = json.Substring(start, end - start);
+                }
+
+                int currIdx = json.IndexOf("\"currency\":");
+                if (currIdx >= 0)
+                {
+                    int start = json.IndexOf('"', currIdx + 11) + 1;
+                    int end = json.IndexOf('"', start);
+                    if (start > 0 && end > start) data.Currency = json.Substring(start, end - start);
+                }
+
+                data.NormalBalance = ExtractDecimal(json, "\"normal\":");
+                data.BonusBalance = ExtractDecimal(json, "\"bonus\":");
+                data.TotalBalance = ExtractDecimal(json, "\"total\":");
+            }
+            catch { }
+            return data;
+        }
+
+        private static decimal ExtractDecimal(string json, string key)
+        {
+            int idx = json.IndexOf(key);
+            if (idx < 0) return 0m;
+            int start = idx + key.Length;
+            while (start < json.Length && (json[start] == ' ' || json[start] == ':' || json[start] == '"')) start++;
+            int end = start;
+            while (end < json.Length && (char.IsDigit(json[end]) || json[end] == '.' || json[end] == '-')) end++;
+            decimal val;
+            if (decimal.TryParse(json.Substring(start, end - start), NumberStyles.Any, CultureInfo.InvariantCulture, out val))
+                return val;
+            return 0m;
+        }
+    }
+
     /// <summary>The pet: a frameless, per-pixel transparent, always-on-top window.</summary>
     internal sealed class PetForm : Form
     {
+        private AccountData accountData = new AccountData();
+        private ToolStripMenuItem accountMenuItem;
         private readonly Dictionary<string, Pose> poses = new Dictionary<string, Pose>(StringComparer.Ordinal);
         private readonly Timer animation;
         private readonly Timer idle;
@@ -290,6 +350,20 @@ namespace WhalePet
 
             menu.Items.Add(new ToolStripSeparator());
 
+            accountMenuItem = new ToolStripMenuItem("账号");
+            UpdateAccountMenu();
+            accountMenuItem.DropDownOpening += delegate
+            {
+                if (HasHostPipe)
+                {
+                    Console.WriteLine("pet:account:query");
+                    Console.Out.Flush();
+                }
+            };
+            menu.Items.Add(accountMenuItem);
+
+            menu.Items.Add(new ToolStripSeparator());
+
             ToolStripMenuItem home = new ToolStripMenuItem("回到右下角");
             home.Click += delegate { MoveToDefaultCorner(); };
             menu.Items.Add(home);
@@ -316,6 +390,108 @@ namespace WhalePet
             ContextMenuStrip = menu;
 
             SetupTrayAndHotkeys();
+        }
+
+        private void UpdateAccountMenu()
+        {
+            if (accountMenuItem == null) return;
+            accountMenuItem.DropDownItems.Clear();
+
+            if (!accountData.Authenticated)
+            {
+                ToolStripMenuItem statusItem = new ToolStripMenuItem("👤 状态：未登录") { Enabled = false };
+                ToolStripMenuItem balanceItem = new ToolStripMenuItem("💰 余额：--") { Enabled = false };
+
+                ToolStripMenuItem loginItem = new ToolStripMenuItem("🔑 登录账号");
+                loginItem.Click += delegate
+                {
+                    if (!HasHostPipe)
+                    {
+                        MessageBox.Show("请通过 DeepSeek Harness 启动桌宠以登录账号。", "登录账号", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    Console.WriteLine("pet:account:login");
+                    Console.Out.Flush();
+                    Say("正在打开登录页面，请在浏览器中完成登录~", 4000);
+                };
+
+                accountMenuItem.DropDownItems.Add(statusItem);
+                accountMenuItem.DropDownItems.Add(balanceItem);
+                accountMenuItem.DropDownItems.Add(new ToolStripSeparator());
+                accountMenuItem.DropDownItems.Add(loginItem);
+            }
+            else
+            {
+                string displayName = string.IsNullOrEmpty(accountData.Name) ? "已登录用户" : accountData.Name;
+                ToolStripMenuItem userItem = new ToolStripMenuItem("👤 用户：" + displayName);
+                userItem.Click += delegate
+                {
+                    Say("主人好！当前登录账号：" + displayName, 4000);
+                };
+
+                string balanceText = string.Format(CultureInfo.InvariantCulture, "💰 余额：¥{0:F2}", accountData.TotalBalance);
+                if (accountData.BonusBalance > 0m)
+                {
+                    balanceText += string.Format(CultureInfo.InvariantCulture, " (赠送 ¥{0:F2})", accountData.BonusBalance);
+                }
+                ToolStripMenuItem balanceItem = new ToolStripMenuItem(balanceText);
+                balanceItem.Click += delegate
+                {
+                    if (accountData.BonusBalance > 0m)
+                    {
+                        Say(string.Format(CultureInfo.InvariantCulture, "主人，当前充值余额 ¥{0:F2}，活动赠送 ¥{1:F2}，随时为您待命哦~", accountData.NormalBalance, accountData.BonusBalance), 5000);
+                    }
+                    else
+                    {
+                        Say(string.Format(CultureInfo.InvariantCulture, "主人，当前可用余额还有 ¥{0:F2} 呢，随时准备为您打工！", accountData.TotalBalance), 5000);
+                    }
+                    if (HasHostPipe)
+                    {
+                        Console.WriteLine("pet:account:query");
+                        Console.Out.Flush();
+                    }
+                };
+
+                ToolStripMenuItem refreshItem = new ToolStripMenuItem("🔄 刷新余额");
+                refreshItem.Click += delegate
+                {
+                    if (HasHostPipe)
+                    {
+                        Console.WriteLine("pet:account:query");
+                        Console.Out.Flush();
+                        Say("正在为您刷新余额中…", 3000);
+                    }
+                    else
+                    {
+                        Say("未连接到 DSH 服务呢~", 3000);
+                    }
+                };
+
+                ToolStripMenuItem logoutItem = new ToolStripMenuItem("🚪 退出登录");
+                logoutItem.ForeColor = Color.FromArgb(183, 94, 120);
+                logoutItem.Click += delegate
+                {
+                    if (MessageBox.Show("确定要退出当前账号吗？", "退出账号", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                    {
+                        if (HasHostPipe)
+                        {
+                            Console.WriteLine("pet:account:logout");
+                            Console.Out.Flush();
+                        }
+                        accountData = new AccountData();
+                        UpdateAccountMenu();
+                        Say("已退出账号。", 3000);
+                    }
+                };
+
+                accountMenuItem.DropDownItems.Add(userItem);
+                accountMenuItem.DropDownItems.Add(balanceItem);
+                accountMenuItem.DropDownItems.Add(refreshItem);
+                accountMenuItem.DropDownItems.Add(new ToolStripSeparator());
+                accountMenuItem.DropDownItems.Add(logoutItem);
+            }
+
+            WhaleMenuRenderer.Style(accountMenuItem.DropDown);
         }
 
         internal void WakeUpAndShow()
@@ -424,6 +600,13 @@ namespace WhalePet
             if (trimmed == "task:end" || trimmed == "state:idle")
             {
                 EndTask();
+                return;
+            }
+            if (trimmed.StartsWith("account:info:", StringComparison.Ordinal))
+            {
+                string json = trimmed.Substring("account:info:".Length);
+                accountData = AccountData.Parse(json);
+                UpdateAccountMenu();
                 return;
             }
             if (line.StartsWith("panel-error:", StringComparison.Ordinal))
@@ -1074,20 +1257,30 @@ namespace WhalePet
 
         private static string ObjectName(IntPtr handle)
         {
-            var name = new StringBuilder(256);
-            int needed;
-            if (!GetUserObjectInformation(handle, 2, name, name.Capacity * 2, out needed))
-                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-            return name.ToString();
+            if (handle == IntPtr.Zero) return "Default";
+            try
+            {
+                var name = new StringBuilder(256);
+                int needed;
+                if (!GetUserObjectInformation(handle, 2, name, name.Capacity * 2, out needed))
+                    return "Default";
+                return name.ToString();
+            }
+            catch { return "Default"; }
         }
 
         private static string InstanceName()
         {
-            // A session can contain multiple desktops (including automation desktops).
-            // A pet on another desktop cannot receive our window messages or be seen here.
-            string desktop = ObjectName(GetProcessWindowStation()) + "\\" + ObjectName(GetThreadDesktop(GetCurrentThreadId()));
-            using (var hash = System.Security.Cryptography.SHA256.Create())
-                return @"Local\DSH.WhalePet." + BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(desktop))).Replace("-", "");
+            try
+            {
+                string desktop = ObjectName(GetProcessWindowStation()) + "\\" + ObjectName(GetThreadDesktop(GetCurrentThreadId()));
+                using (var hash = System.Security.Cryptography.SHA256.Create())
+                    return @"Local\DSH.WhalePet." + BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(desktop))).Replace("-", "");
+            }
+            catch
+            {
+                return @"Local\DSH.WhalePet.Default";
+            }
         }
 
         private static bool WakeExisting()
@@ -1152,24 +1345,32 @@ namespace WhalePet
         [STAThread]
         private static void Main(string[] args)
         {
-            EnableHighDpi();
-            PetForm.WakeWindowMessage = PetForm.RegisterWindowMessage("DSH_WHALE_PET_WAKE_MESSAGE");
-            bool created;
-            using (var instance = new System.Threading.Mutex(true, InstanceName(), out created))
+            try
             {
-                if (!created)
+                EnableHighDpi();
+                PetForm.WakeWindowMessage = PetForm.RegisterWindowMessage("DSH_WHALE_PET_WAKE_MESSAGE");
+                bool created;
+                using (var instance = new System.Threading.Mutex(true, InstanceName(), out created))
                 {
-                    // Report success only after the existing UI thread acknowledges showing the window.
-                    if (WakeExisting()) Console.WriteLine("pet:forwarded");
-                    else
+                    if (!created)
                     {
-                        Console.Error.WriteLine("Existing pet did not acknowledge wake-up on this desktop");
-                        Environment.ExitCode = 1;
+                        // Report success only after the existing UI thread acknowledges showing the window.
+                        if (WakeExisting()) Console.WriteLine("pet:forwarded");
+                        else
+                        {
+                            Console.Error.WriteLine("Existing pet did not acknowledge wake-up on this desktop");
+                            Environment.ExitCode = 1;
+                        }
+                        return;
                     }
-                    return;
+                    try { Run(args); }
+                    finally { instance.ReleaseMutex(); }
                 }
-                try { Run(args); }
-                finally { instance.ReleaseMutex(); }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[FATAL MAIN EXCEPTION] " + ex);
+                Environment.ExitCode = 1;
             }
         }
 
@@ -1234,6 +1435,11 @@ namespace WhalePet
                     // hello, so "did it start?" is answerable at a glance.
                     form.Greet();
                     Console.WriteLine("pet:ready");
+                    if (hostPipe)
+                    {
+                        Console.WriteLine("pet:account:query");
+                        Console.Out.Flush();
+                    }
                     if (!smoke) return;
                     Timer quit = new Timer { Interval = smokeMilliseconds };
                     quit.Tick += delegate { quit.Stop(); form.Close(); };

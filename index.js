@@ -15,7 +15,10 @@ export function apply(ctx) {
         if (!server?.port || !connection?.authenticatedUrl) throw new Error('DSH web connection is not ready');
         return connection.authenticatedUrl(`http://127.0.0.1:${server.port}`);
       },
-      getLastSelection: () => syncRelay?.getLastSelection()
+      getLastSelection: () => syncRelay?.getLastSelection(),
+      getAccountInfo: () => syncRelay?.getAccountSnapshot(),
+      triggerLogin: () => syncRelay?.handleLogin(),
+      triggerLogout: () => syncRelay?.handleLogout()
     });
 
     syncRelay = setupSyncRelay(ctx, petController.manager);
