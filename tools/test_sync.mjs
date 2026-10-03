@@ -29,7 +29,9 @@ const mockPetManager = {
 };
 
 const relay = setupSyncRelay(mockCtx, mockPetManager);
-assert.equal(routes.size, 4, 'Should register GET/POST sync and GET/POST launch/status routes');
+assert.equal(routes.size, 8, 'Should register clean /pet-whale and fallback /api/pet-whale routes');
+assert.ok(routes.has('POST:/pet-whale/launch'), '/pet-whale/launch route exists');
+assert.ok(routes.has('GET:/pet-whale/sync'), '/pet-whale/sync route exists');
 
 // Test 2: Initially no selection
 assert.equal(relay.getLastSelection(), null, 'Initially last selection should be null');

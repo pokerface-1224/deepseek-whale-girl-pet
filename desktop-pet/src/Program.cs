@@ -171,6 +171,7 @@ namespace WhalePet
         private int nextActivity;
         private Bitmap frame;
         private MiniPanel miniPanel;
+        private NotifyIcon trayIcon;
         internal bool HasHostPipe;
 
         private bool dragging;
@@ -319,6 +320,76 @@ namespace WhalePet
             };
             quit.ForeColor = Color.FromArgb(183, 94, 120);
             ContextMenuStrip = menu;
+
+            SetupTrayAndHotkeys();
+        }
+
+        internal void WakeUpAndShow()
+        {
+            if (!Visible) Show();
+            WindowState = FormWindowState.Normal;
+            TopMost = prefs.TopMost;
+            BringToFront();
+            Activate();
+            Greet();
+        }
+
+        private void SetupTrayAndHotkeys()
+        {
+            try
+            {
+                trayIcon = new NotifyIcon();
+                if (current != null && current.Image != null)
+                {
+                    IntPtr hIcon = current.Image.GetHicon();
+                    trayIcon.Icon = Icon.FromHandle(hIcon);
+                }
+                else
+                {
+                    trayIcon.Icon = SystemIcons.Application;
+                }
+                trayIcon.Text = "鲸鱼娘桌宠 (左键点击唤醒)";
+                trayIcon.Visible = true;
+                trayIcon.MouseClick += delegate(object s, MouseEventArgs e)
+                {
+                    if (e.Button == MouseButtons.Left)
+                    {
+                        WakeUpAndShow();
+                    }
+                };
+
+                ContextMenuStrip trayMenu = new ContextMenuStrip();
+                ToolStripMenuItem tmShow = new ToolStripMenuItem("唤醒桌宠 (Alt+W)");
+                tmShow.Click += delegate { WakeUpAndShow(); };
+                ToolStripMenuItem tmCorner = new ToolStripMenuItem("回到右下角");
+                tmCorner.Click += delegate { MoveToDefaultCorner(); WakeUpAndShow(); };
+                ToolStripMenuItem tmHide = new ToolStripMenuItem("隐藏桌宠");
+                tmHide.Click += delegate { Hide(); };
+                ToolStripMenuItem tmQuit = new ToolStripMenuItem("彻底退出");
+                tmQuit.Click += delegate { Close(); };
+                trayMenu.Items.AddRange(new ToolStripItem[] { tmShow, tmCorner, tmHide, new ToolStripSeparator(), tmQuit });
+                WhaleMenuRenderer.Style(trayMenu);
+                trayIcon.ContextMenuStrip = trayMenu;
+            }
+            catch { }
+
+            try
+            {
+                RegisterHotKey(Handle, HOTKEY_ID, MOD_ALT, VK_W);
+            }
+            catch { }
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            try { UnregisterHotKey(Handle, HOTKEY_ID); } catch { }
+            if (trayIcon != null)
+            {
+                trayIcon.Visible = false;
+                trayIcon.Dispose();
+                trayIcon = null;
+            }
+            base.OnFormClosed(e);
         }
 
         internal void ReceiveHostMessage(string line)
@@ -547,6 +618,12 @@ namespace WhalePet
         /// <summary>Per-pixel hit testing: the window only reacts where she is opaque.</summary>
         protected override void WndProc(ref Message message)
         {
+            if ((WakeWindowMessage != 0 && message.Msg == (int)WakeWindowMessage)
+                || (message.Msg == 0x0312 && message.WParam.ToInt32() == HOTKEY_ID))
+            {
+                WakeUpAndShow();
+                return;
+            }
             if (message.Msg == WM_NCHITTEST && prefs != null && prefs.ClickThrough)
             {
                 base.WndProc(ref message);
@@ -613,6 +690,15 @@ namespace WhalePet
         [DllImport("gdi32.dll")] private static extern IntPtr SelectObject(IntPtr dc, IntPtr value);
         [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr value);
         [DllImport("gdi32.dll")] private static extern bool DeleteDC(IntPtr dc);
+        [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+        [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+        [DllImport("user32.dll")] internal static extern uint RegisterWindowMessage(string lpString);
+        [DllImport("user32.dll")] internal static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        internal static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
+        private const int HOTKEY_ID = 0x5748;
+        private const uint MOD_ALT = 0x0001;
+        private const uint VK_W = 0x57;
+        internal static uint WakeWindowMessage;
 
         private Bitmap CreateFrame()
         {
@@ -884,14 +970,15 @@ namespace WhalePet
         [STAThread]
         private static void Main(string[] args)
         {
+            PetForm.WakeWindowMessage = PetForm.RegisterWindowMessage("DSH_WHALE_PET_WAKE_MESSAGE");
             bool created;
             using (var instance = new System.Threading.Mutex(true, @"Local\DSH.WhalePet", out created))
             {
-                // Allow an old plugin generation a moment to close its pipe.
                 if (!created)
                 {
-                    try { if (!instance.WaitOne(1500)) return; }
-                    catch (System.Threading.AbandonedMutexException) { }
+                    // 已有实例在运行：广播唤醒已有窗口并直接退出新实例
+                    PetForm.PostMessage(PetForm.HWND_BROADCAST, PetForm.WakeWindowMessage, IntPtr.Zero, IntPtr.Zero);
+                    return;
                 }
                 try { Run(args); }
                 finally { instance.ReleaseMutex(); }

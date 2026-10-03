@@ -73,7 +73,7 @@ window.__ModuleLoader__.load({
 
       const triggerLaunch = () => {
         setClicking(true);
-        fetch("/api/pet-whale/launch", { method: "POST" })
+        fetch("/pet-whale/launch", { method: "POST", credentials: "include" })
           .catch(() => {})
           .finally(() => {
             setTimeout(() => setClicking(false), 300);
@@ -116,9 +116,10 @@ window.__ModuleLoader__.load({
           if (!sessionId || sessionId === lastSessionId) return;
           lastSessionId = sessionId;
 
-          fetch("/api/pet-whale/sync", {
+          fetch("/pet-whale/sync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({
               clientId,
               sessionId,
@@ -143,7 +144,7 @@ window.__ModuleLoader__.load({
         // SSE for remote session updates
         let eventSource = null;
         try {
-          eventSource = new EventSource("/api/pet-whale/sync");
+          eventSource = new EventSource("/pet-whale/sync");
           eventSource.onmessage = (event) => {
             if (!event?.data) return;
             try {
@@ -211,7 +212,7 @@ window.__ModuleLoader__.load({
               ui: {
                 kind: "action",
                 run: () => {
-                  fetch("/api/pet-whale/launch", { method: "POST" }).catch(() => {});
+                  fetch("/pet-whale/launch", { method: "POST", credentials: "include" }).catch(() => {});
                 }
               }
             }), "pet-whale: slash command /whale-girl");
@@ -234,7 +235,7 @@ window.__ModuleLoader__.load({
                 "desktop:windows": { code: "KeyW", modifiers: ["alt"] }
               },
               run: () => {
-                fetch("/api/pet-whale/launch", { method: "POST" }).catch(() => {});
+                fetch("/pet-whale/launch", { method: "POST", credentials: "include" }).catch(() => {});
               }
             }), "pet-whale: shortcut Alt+W");
           }
