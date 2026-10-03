@@ -75,6 +75,9 @@ node tools/test_auth.mjs
 node tools/test_client.mjs
 node tools/test_native_host.mjs
 
+# 中文用户名、JSON 转义与原生账号菜单显示
+& ./tools/test_account.ps1
+
 # 饱腹值、偏好兼容、角色落点与进食效果测试（独立测试目录）
 & ./tools/test_feeding.ps1
 

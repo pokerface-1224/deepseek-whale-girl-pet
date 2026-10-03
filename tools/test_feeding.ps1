@@ -15,7 +15,7 @@ if (-not (Test-Path -LiteralPath $compiler)) {
 }
 $testExe = Join-Path $testRoot 'FeedingCheck.exe'
 & $compiler /nologo /target:exe /platform:x64 /warn:4 /main:WhalePet.FeedingCheck "/out:$testExe" `
-    /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
+    /reference:System.dll /reference:System.Core.dll /reference:System.Web.Extensions.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
     "/reference:$(Join-Path $petRoot 'Microsoft.Web.WebView2.Core.dll')" `
     "/reference:$(Join-Path $petRoot 'Microsoft.Web.WebView2.WinForms.dll')" `
     (Join-Path $petRoot 'src/Program.cs') (Join-Path $petRoot 'src/Feeding.cs') `

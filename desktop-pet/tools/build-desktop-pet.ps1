@@ -9,7 +9,7 @@ $csc = @(
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $csc) { throw '.NET Framework v4 compiler was not found.' }
 & $csc /nologo /target:winexe /platform:x64 /optimize+ /warn:4 `
-  "/out:$output" /reference:System.dll /reference:System.Core.dll `
+  "/out:$output" /reference:System.dll /reference:System.Core.dll /reference:System.Web.Extensions.dll `
   /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
   "/reference:$(Join-Path $root 'Microsoft.Web.WebView2.Core.dll')" `
   "/reference:$(Join-Path $root 'Microsoft.Web.WebView2.WinForms.dll')" `

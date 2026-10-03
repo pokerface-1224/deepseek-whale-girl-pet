@@ -17,6 +17,7 @@ using System.IO;
 using System.Text;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using System.Web.Script.Serialization;
 
 namespace WhalePet
 {
@@ -164,7 +165,6 @@ namespace WhalePet
     {
         public bool Authenticated = false;
         public string Name = "";
-        public string Contact = "";
         public decimal NormalBalance = 0m;
         public decimal BonusBalance = 0m;
         public decimal TotalBalance = 0m;
@@ -176,44 +176,45 @@ namespace WhalePet
             if (string.IsNullOrEmpty(json)) return data;
             try
             {
-                data.Authenticated = json.Contains("\"authenticated\":true");
-
-                int nameIdx = json.IndexOf("\"name\":");
-                if (nameIdx >= 0)
-                {
-                    int start = json.IndexOf('"', nameIdx + 7) + 1;
-                    int end = json.IndexOf('"', start);
-                    if (start > 0 && end > start) data.Name = json.Substring(start, end - start);
-                }
-
-                int currIdx = json.IndexOf("\"currency\":");
-                if (currIdx >= 0)
-                {
-                    int start = json.IndexOf('"', currIdx + 11) + 1;
-                    int end = json.IndexOf('"', start);
-                    if (start > 0 && end > start) data.Currency = json.Substring(start, end - start);
-                }
-
-                data.NormalBalance = ExtractDecimal(json, "\"normal\":");
-                data.BonusBalance = ExtractDecimal(json, "\"bonus\":");
-                data.TotalBalance = ExtractDecimal(json, "\"total\":");
+                var root = new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
+                if (root == null) return data;
+                object value;
+                data.Authenticated = root.TryGetValue("authenticated", out value) && value is bool && (bool)value;
+                var user = root.TryGetValue("user", out value) ? value as Dictionary<string, object> : null;
+                data.Name = GetString(user, "name", "");
+                var balance = root.TryGetValue("balance", out value) ? value as Dictionary<string, object> : null;
+                data.Currency = GetString(balance, "currency", "CNY");
+                data.NormalBalance = ExtractDecimal(balance, "normal");
+                data.BonusBalance = ExtractDecimal(balance, "bonus");
+                data.TotalBalance = ExtractDecimal(balance, "total");
             }
             catch { }
             return data;
         }
 
-        private static decimal ExtractDecimal(string json, string key)
+        private static string GetString(Dictionary<string, object> values, string key, string fallback)
         {
-            int idx = json.IndexOf(key);
-            if (idx < 0) return 0m;
-            int start = idx + key.Length;
-            while (start < json.Length && (json[start] == ' ' || json[start] == ':' || json[start] == '"')) start++;
-            int end = start;
-            while (end < json.Length && (char.IsDigit(json[end]) || json[end] == '.' || json[end] == '-')) end++;
+            object value;
+            return values != null && values.TryGetValue(key, out value) && value is string ? (string)value : fallback;
+        }
+
+        private static decimal ExtractDecimal(Dictionary<string, object> values, string key)
+        {
+            object value;
             decimal val;
-            if (decimal.TryParse(json.Substring(start, end - start), NumberStyles.Any, CultureInfo.InvariantCulture, out val))
+            if (values != null && values.TryGetValue(key, out value) &&
+                decimal.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Number, CultureInfo.InvariantCulture, out val))
                 return val;
             return 0m;
+        }
+    }
+
+    internal static class HostTextProtocol
+    {
+        // Node writes UTF-8, independent of the Windows console's OEM code page.
+        internal static StreamReader CreateReader(Stream input)
+        {
+            return new StreamReader(input, new UTF8Encoding(false), false);
         }
     }
 
@@ -1551,6 +1552,7 @@ namespace WhalePet
         {
             try
             {
+                Console.OutputEncoding = new UTF8Encoding(false);
                 EnableHighDpi();
                 PetForm.WakeWindowMessage = PetForm.RegisterWindowMessage("DSH_WHALE_PET_WAKE_MESSAGE");
                 bool created;
@@ -1613,12 +1615,15 @@ namespace WhalePet
                     {
                         try
                         {
-                            string line;
-                            while ((line = Console.In.ReadLine()) != null)
+                            using (StreamReader input = HostTextProtocol.CreateReader(Console.OpenStandardInput()))
                             {
-                                string message = line;
-                                if (!form.IsDisposed && form.IsHandleCreated)
-                                    form.BeginInvoke(new Action(delegate { if (!form.IsDisposed) form.ReceiveHostMessage(message); }));
+                                string line;
+                                while ((line = input.ReadLine()) != null)
+                                {
+                                    string message = line;
+                                    if (!form.IsDisposed && form.IsHandleCreated)
+                                        form.BeginInvoke(new Action(delegate { if (!form.IsDisposed) form.ReceiveHostMessage(message); }));
+                                }
                             }
                         }
                         catch (IOException) { }
