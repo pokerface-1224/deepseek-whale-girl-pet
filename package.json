@@ -1,0 +1,39 @@
+{
+  "name": "@local/dsh-pet-whale",
+  "version": "1.2.0",
+  "private": true,
+  "description": "鲸鱼娘桌宠：随 Harness 启动，在 Windows 桌面显示可拖动、可互动的透明鲸鱼女仆窗口。",
+  "type": "module",
+  "icon": "./icon.png",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "native-host.js",
+    "desktop-pet/WhalePet.exe",
+    "desktop-pet/art/*.png",
+    "desktop-pet/src/*.cs",
+    "desktop-pet/tools/build-desktop-pet.ps1",
+    "cordis.patch.yml",
+    "icon.png",
+    "locale/*.json"
+  ],
+  "meta": {
+    "title": {
+      "zh": "鲸鱼娘桌宠",
+      "en": "Whale-girl desktop pet"
+    },
+    "description": {
+      "zh": "把角色设定图里的鲸鱼女仆做成悬浮桌宠：可拖动、可摸头、三种视角、会打瞌睡。",
+      "en": "The whale-girl maid from the character sheet as a floating pet: draggable, pettable, three views, and she dozes off."
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+.inspect/
+*.log
+*.lnk
+desktop-pet/pet-prefs.txt
+desktop-pet/WhalePet.Check.exe
+desktop-pet/main.js
+desktop-pet/preload.js
+desktop-pet/pet.html
+desktop-pet/package.json
+desktop-pet/pnpm-lock.yaml
+desktop-pet/pnpm-workspace.yaml
+release/
