@@ -14,7 +14,7 @@ export function setupSyncRelay(ctx, petManager) {
   const clients = new Set();
   const disposers = [];
 
-  const handleSseGet = async (req, res) => {
+  const handleSseGet = (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -32,7 +32,7 @@ export function setupSyncRelay(ctx, petManager) {
     });
   };
 
-  const handleSyncPost = async (req, res) => {
+  const handleSyncPost = (req, res) => {
     let body = '';
     req.on('data', chunk => {
       body += chunk;
@@ -61,7 +61,18 @@ export function setupSyncRelay(ctx, petManager) {
     });
   };
 
-  const handleLaunchPost = async (req, res) => {
+  const handleSync = async (req, res) => {
+    if (req.method === 'GET') {
+      return handleSseGet(req, res);
+    }
+    if (req.method === 'POST') {
+      return handleSyncPost(req, res);
+    }
+    res.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
+    res.end();
+  };
+
+  const handleLaunch = async (req, res) => {
     try {
       if (!petManager) {
         res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -77,22 +88,27 @@ export function setupSyncRelay(ctx, petManager) {
     }
   };
 
-  const handleStatusGet = async (req, res) => {
+  const handleStatus = async (req, res) => {
     const running = petManager ? petManager.isAlive() : false;
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ running }));
   };
 
-  // Register clean non-API routes (bypasses connection /api 401 interceptor)
+  // Register exactly one handler per path (webserver throws on duplicate paths)
   for (const path of ['/pet-whale/sync', '/api/pet-whale/sync']) {
-    disposers.push(server.register({ kind: 'exact', path, method: 'GET', handler: handleSseGet }));
-    disposers.push(server.register({ kind: 'exact', path, method: 'POST', handler: handleSyncPost }));
+    try {
+      disposers.push(server.register({ kind: 'exact', path, handler: handleSync }));
+    } catch (e) {}
   }
   for (const path of ['/pet-whale/launch', '/api/pet-whale/launch']) {
-    disposers.push(server.register({ kind: 'exact', path, method: 'POST', handler: handleLaunchPost }));
+    try {
+      disposers.push(server.register({ kind: 'exact', path, handler: handleLaunch }));
+    } catch (e) {}
   }
   for (const path of ['/pet-whale/status', '/api/pet-whale/status']) {
-    disposers.push(server.register({ kind: 'exact', path, method: 'GET', handler: handleStatusGet }));
+    try {
+      disposers.push(server.register({ kind: 'exact', path, handler: handleStatus }));
+    } catch (e) {}
   }
 
   return {

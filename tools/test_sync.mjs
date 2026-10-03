@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { setupSyncRelay } from '../sync-host.js';
 import { PetManager } from '../native-host.js';
 
-// Test 1: Mock server registration and GET / POST sync behavior
+// Test 1: Mock server registration
 const routes = new Map();
 const mockServer = {
   register: (route) => {
-    routes.set(`${route.method}:${route.path}`, route);
-    return () => routes.delete(`${route.method}:${route.path}`);
+    if (routes.has(route.path)) throw new Error(`duplicate route ${route.path}`);
+    routes.set(route.path, route);
+    return () => routes.delete(route.path);
   }
 };
 
@@ -29,16 +30,16 @@ const mockPetManager = {
 };
 
 const relay = setupSyncRelay(mockCtx, mockPetManager);
-assert.equal(routes.size, 8, 'Should register clean /pet-whale and fallback /api/pet-whale routes');
-assert.ok(routes.has('POST:/pet-whale/launch'), '/pet-whale/launch route exists');
-assert.ok(routes.has('GET:/pet-whale/sync'), '/pet-whale/sync route exists');
+assert.ok(routes.has('/pet-whale/sync'), '/pet-whale/sync route exists');
+assert.ok(routes.has('/pet-whale/launch'), '/pet-whale/launch route exists');
+assert.ok(routes.has('/pet-whale/status'), '/pet-whale/status route exists');
 
 // Test 2: Initially no selection
 assert.equal(relay.getLastSelection(), null, 'Initially last selection should be null');
 
-// Test 3: POST /api/pet-whale/sync
-const postRoute = routes.get('POST:/api/pet-whale/sync');
-assert.ok(postRoute, 'POST route exists');
+// Test 3: POST /pet-whale/sync
+const syncRoute = routes.get('/pet-whale/sync');
+assert.ok(syncRoute, 'sync route exists');
 
 let sseWritten = [];
 const mockSseRes = {
@@ -47,13 +48,12 @@ const mockSseRes = {
   on: () => {}
 };
 
-const getRoute = routes.get('GET:/api/pet-whale/sync');
-assert.ok(getRoute, 'GET route exists');
-await getRoute.handler({ on: () => {} }, mockSseRes);
+await syncRoute.handler({ method: 'GET', on: () => {} }, mockSseRes);
 
 // Simulate POST from a client
 let reqEvents = {};
 const mockReq = {
+  method: 'POST',
   on: (event, handler) => { reqEvents[event] = handler; }
 };
 let postStatus = 0;
@@ -62,7 +62,7 @@ const mockPostRes = {
   end: () => {}
 };
 
-postRoute.handler(mockReq, mockPostRes);
+syncRoute.handler(mockReq, mockPostRes);
 reqEvents['data'](JSON.stringify({ clientId: 'win1', sessionId: 'sess-123', timestamp: 100 }));
 reqEvents['end']();
 
@@ -71,10 +71,10 @@ assert.deepEqual(relay.getLastSelection(), { clientId: 'win1', sessionId: 'sess-
 assert.ok(sseWritten.some(msg => msg.includes('sess-123')), 'SSE listener should receive session broadcast');
 
 // Test 4: Launch route (re-summoning the pet)
-const launchRoute = routes.get('POST:/api/pet-whale/launch');
-assert.ok(launchRoute, 'POST /api/pet-whale/launch route exists');
+const launchRoute = routes.get('/pet-whale/launch');
+assert.ok(launchRoute, 'POST /pet-whale/launch route exists');
 let launchResBody = '';
-await launchRoute.handler({}, {
+await launchRoute.handler({ method: 'POST' }, {
   writeHead: () => {},
   end: (data) => { launchResBody = data; }
 });
@@ -82,7 +82,7 @@ assert.equal(launchCalls, 1, 'Should call launchOrWake once');
 assert.match(launchResBody, /"status":"launched"/);
 
 // Second launch when already alive should wake
-await launchRoute.handler({}, {
+await launchRoute.handler({ method: 'POST' }, {
   writeHead: () => {},
   end: (data) => { launchResBody = data; }
 });
@@ -90,10 +90,10 @@ assert.equal(launchCalls, 2, 'Should call launchOrWake twice');
 assert.match(launchResBody, /"status":"woken"/);
 
 // Test 5: Status route
-const statusRoute = routes.get('GET:/api/pet-whale/status');
-assert.ok(statusRoute, 'GET /api/pet-whale/status route exists');
+const statusRoute = routes.get('/pet-whale/status');
+assert.ok(statusRoute, 'GET /pet-whale/status route exists');
 let statusResBody = '';
-await statusRoute.handler({}, {
+await statusRoute.handler({ method: 'GET' }, {
   writeHead: () => {},
   end: (data) => { statusResBody = data; }
 });
@@ -106,5 +106,5 @@ const res = pm.launchOrWake();
 assert.equal(res.ok, false, 'Non-win32 should not launch');
 
 relay.dispose();
-assert.equal(routes.size, 0, 'Disposal should remove all 4 routes');
+assert.equal(routes.size, 0, 'Disposal should remove all routes');
 console.log('PASS: Host sync relay & daemon control (SSE + POST + launch + status + dispose)');
