@@ -46,6 +46,11 @@ namespace WhalePet
                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
 
             Text = "鲸鱼娘 · 随身终端";
+            FormBorderStyle = FormBorderStyle.None;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ControlBox = false;
+
             int dpiX = 96;
             try
             {
@@ -54,7 +59,12 @@ namespace WhalePet
             }
             catch { }
             float dpiScale = Math.Max(1.0f, dpiX / 96.0f);
-            Size = new Size((int)Math.Round(420 * dpiScale), (int)Math.Round(580 * dpiScale));
+            int targetW = (int)Math.Round(420 * dpiScale);
+            int targetH = (int)Math.Round(580 * dpiScale);
+            Size = new Size(targetW, targetH);
+            MinimumSize = Size;
+            MaximumSize = Size;
+
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
             ShowInTaskbar = false;
@@ -121,6 +131,23 @@ namespace WhalePet
                 cp.ClassStyle |= 0x00020000;
                 return cp;
             }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_NCHITTEST = 0x0084;
+            const int HTCLIENT = 1;
+            if (m.Msg == WM_NCHITTEST)
+            {
+                base.WndProc(ref m);
+                int hit = m.Result.ToInt32();
+                if (hit != HTCLIENT)
+                {
+                    m.Result = (IntPtr)HTCLIENT;
+                    return;
+                }
+            }
+            base.WndProc(ref m);
         }
 
         private void UpdateClipRegion()
