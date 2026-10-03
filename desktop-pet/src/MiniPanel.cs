@@ -255,6 +255,8 @@ namespace WhalePet
                     }
                 };
                 initialized = true;
+                await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                    "(function() { try { document.documentElement.setAttribute('data-mini-panel', 'true'); } catch(e) {} })();");
                 string initialSession = GetInitialSession(endpoint);
                 if (!string.IsNullOrEmpty(initialSession))
                 {

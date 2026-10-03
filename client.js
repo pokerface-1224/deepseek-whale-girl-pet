@@ -298,6 +298,206 @@ window.__ModuleLoader__.load({
           console.warn("[pet-whale] sidebar slot registration skipped:", e);
         }
       });
+
+      // 5. Inject Responsive Settings Modal Styles for Mini Panel
+      try {
+        if (typeof document !== "undefined" && document.head) {
+          const styleId = "dsh-pet-whale-mini-panel-styles";
+          if (!document.getElementById(styleId)) {
+            const style = document.createElement("style");
+            style.id = styleId;
+            style.textContent = `
+              /* Mini Panel Settings Layout: Transform 2-column into top-tabs + full-width content */
+              @media (max-width: 580px) {
+                html[data-mini-panel="true"] [class*="wCInkW_panel"],
+                [class*="wCInkW_panel"] {
+                  width: calc(100vw - 16px) !important;
+                  max-width: calc(100vw - 16px) !important;
+                  height: calc(100vh - 20px) !important;
+                  max-height: calc(100vh - 20px) !important;
+                  margin: 10px auto !important;
+                  border-radius: 12px !important;
+                  flex-direction: column !important;
+                  overflow: hidden !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_nav"],
+                [class*="wCInkW_panel"] > [class*="wCInkW_nav"] {
+                  width: 100% !important;
+                  height: auto !important;
+                  flex: none !important;
+                  flex-direction: row !important;
+                  align-items: center !important;
+                  gap: 8px !important;
+                  padding: 8px 10px 6px !important;
+                  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.08)) !important;
+                  background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.5)) !important;
+                  box-sizing: border-box !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_navTitle"],
+                [class*="wCInkW_panel"] [class*="wCInkW_navTitle"] {
+                  display: none !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_navList"],
+                [class*="wCInkW_panel"] [class*="wCInkW_navList"] {
+                  flex-direction: row !important;
+                  flex-wrap: nowrap !important;
+                  overflow-x: auto !important;
+                  overflow-y: hidden !important;
+                  width: 100% !important;
+                  gap: 6px !important;
+                  padding: 2px 0 4px !important;
+                  scrollbar-width: none !important;
+                  -ms-overflow-style: none !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_navList"]::-webkit-scrollbar,
+                [class*="wCInkW_panel"] [class*="wCInkW_navList"]::-webkit-scrollbar {
+                  display: none !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_navCell"],
+                [class*="wCInkW_panel"] [class*="wCInkW_navCell"] {
+                  flex: none !important;
+                  height: 30px !important;
+                  padding: 4px 10px !important;
+                  gap: 6px !important;
+                  font-size: 13px !important;
+                  line-height: 20px !important;
+                  border-radius: 6px !important;
+                  white-space: nowrap !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_content"],
+                [class*="wCInkW_panel"] > [class*="wCInkW_content"] {
+                  flex: 1 !important;
+                  min-height: 0 !important;
+                  width: 100% !important;
+                  display: flex !important;
+                  flex-direction: column !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_header"],
+                [class*="wCInkW_panel"] [class*="wCInkW_header"] {
+                  height: 36px !important;
+                  padding: 6px 12px 2px !important;
+                  gap: 4px !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_close"],
+                [class*="wCInkW_panel"] [class*="wCInkW_close"] {
+                  width: 28px !important;
+                  height: 28px !important;
+                }
+
+                html[data-mini-panel="true"] [class*="wCInkW_options"],
+                [class*="wCInkW_panel"] [class*="wCInkW_options"] {
+                  padding: 6px 14px 16px !important;
+                  width: 100% !important;
+                  box-sizing: border-box !important;
+                }
+
+                [class*="wCInkW_options"] [class*="_field"] {
+                  padding: 10px 0 !important;
+                  gap: 4px !important;
+                }
+
+                [class*="wCInkW_options"] [class*="_head"] {
+                  flex-wrap: wrap !important;
+                  gap: 6px !important;
+                }
+
+                [class*="wCInkW_options"] [class*="_help"] {
+                  padding: 6px 0 0 !important;
+                  font-size: 12px !important;
+                  line-height: 1.5 !important;
+                }
+
+                [class*="wCInkW_options"] input[type="text"],
+                [class*="wCInkW_options"] input[type="number"],
+                [class*="wCInkW_options"] textarea,
+                [class*="wCInkW_options"] select {
+                  max-width: 100% !important;
+                  box-sizing: border-box !important;
+                }
+
+                [class*="wCInkW_options"] [class*="_footer"] {
+                  padding-top: 12px !important;
+                }
+              }
+
+              /* Explicit mini-panel environment override */
+              html[data-mini-panel="true"] [class*="wCInkW_panel"] {
+                width: calc(100vw - 16px) !important;
+                max-width: calc(100vw - 16px) !important;
+                height: calc(100vh - 20px) !important;
+                max-height: calc(100vh - 20px) !important;
+                margin: 10px auto !important;
+                border-radius: 12px !important;
+                flex-direction: column !important;
+                overflow: hidden !important;
+              }
+              html[data-mini-panel="true"] [class*="wCInkW_panel"] > [class*="wCInkW_nav"] {
+                width: 100% !important;
+                height: auto !important;
+                flex: none !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                gap: 8px !important;
+                padding: 8px 10px 6px !important;
+                border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.08)) !important;
+                box-sizing: border-box !important;
+              }
+              html[data-mini-panel="true"] [class*="wCInkW_panel"] [class*="wCInkW_navTitle"] {
+                display: none !important;
+              }
+              html[data-mini-panel="true"] [class*="wCInkW_panel"] [class*="wCInkW_navList"] {
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                overflow-x: auto !important;
+                overflow-y: hidden !important;
+                width: 100% !important;
+                gap: 6px !important;
+                padding: 2px 0 4px !important;
+                scrollbar-width: none !important;
+                -ms-overflow-style: none !important;
+              }
+              html[data-mini-panel="true"] [class*="wCInkW_panel"] [class*="wCInkW_navCell"] {
+                flex: none !important;
+                height: 30px !important;
+                padding: 4px 10px !important;
+                gap: 6px !important;
+                font-size: 13px !important;
+                line-height: 20px !important;
+                border-radius: 6px !important;
+                white-space: nowrap !important;
+              }
+              html[data-mini-panel="true"] [class*="wCInkW_panel"] > [class*="wCInkW_content"] {
+                flex: 1 !important;
+                min-height: 0 !important;
+                width: 100% !important;
+                display: flex !important;
+                flex-direction: column !important;
+              }
+              html[data-mini-panel="true"] [class*="wCInkW_panel"] [class*="wCInkW_header"] {
+                height: 36px !important;
+                padding: 6px 12px 2px !important;
+                gap: 4px !important;
+              }
+              html[data-mini-panel="true"] [class*="wCInkW_panel"] [class*="wCInkW_options"] {
+                padding: 6px 14px 16px !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+              }
+            `;
+            document.head.appendChild(style);
+          }
+        }
+      } catch (e) {
+        console.warn("[pet-whale] Failed to inject mini panel settings styles:", e);
+      }
     }
 
     exports.inject = inject;
