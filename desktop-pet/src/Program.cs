@@ -26,6 +26,7 @@ namespace WhalePet
     {
         public string Name;
         public Bitmap Image;
+        public Rectangle VisibleBounds;
         public float EyeY;        // fraction of image height, eye centre line
         public float EyeHeight;   // fraction of image height
         public float EyeWidth;    // fraction of image width, per eye
@@ -36,6 +37,17 @@ namespace WhalePet
         {
             Name = name;
             Image = LoadUnlocked(path);
+            int left = Image.Width, top = Image.Height, right = -1, bottom = -1;
+            // Match hit testing: ignore nearly invisible antialiasing pixels.
+            for (int y = 0; y < Image.Height; y++)
+            for (int x = 0; x < Image.Width; x++)
+            {
+                if (Image.GetPixel(x, y).A <= 24) continue;
+                left = Math.Min(left, x); top = Math.Min(top, y);
+                right = Math.Max(right, x); bottom = Math.Max(bottom, y);
+            }
+            VisibleBounds = right < left ? new Rectangle(0, 0, Image.Width, Image.Height)
+                : Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
             EyeY = eyeY;
             EyeHeight = eyeHeight;
             EyeWidth = eyeWidth;
@@ -330,10 +342,32 @@ namespace WhalePet
 
         private Point ClampToScreen(Point point)
         {
-            Rectangle area = Screen.FromPoint(point).WorkingArea;
-            int x = Math.Min(Math.Max(area.Left, point.X), Math.Max(area.Left, area.Right - Width));
-            int y = Math.Min(Math.Max(area.Top, point.Y), Math.Max(area.Top, area.Bottom - Height));
-            return new Point(x, y);
+            Rectangle visible = VisibleSpriteBounds();
+            // The transparent window origin can be outside the current monitor.
+            Point anchor = dragging ? Cursor.Position : new Point(point.X + visible.Left + visible.Width / 2,
+                point.Y + visible.Top + visible.Height / 2);
+            return ClampVisible(point, visible, Screen.FromPoint(anchor).WorkingArea);
+        }
+
+        internal static Point ClampVisible(Point point, Rectangle visible, Rectangle area)
+        {
+            int minX = area.Left - visible.Left, maxX = area.Right - visible.Right;
+            int minY = area.Top - visible.Top, maxY = area.Bottom - visible.Bottom;
+            return new Point(Math.Min(Math.Max(minX, point.X), Math.Max(minX, maxX)),
+                Math.Min(Math.Max(minY, point.Y), Math.Max(minY, maxY)));
+        }
+
+        private Rectangle VisibleSpriteBounds()
+        {
+            float scale = SpriteScale;
+            int width = (int)Math.Round(current.Image.Width * scale);
+            int height = (int)Math.Round(current.Image.Height * scale);
+            int left = (ClientSize.Width - width) / 2, top = ClientSize.Height - height - 20;
+            Rectangle source = current.VisibleBounds;
+            return Rectangle.FromLTRB(left + (int)Math.Floor(source.Left * width / (double)current.Image.Width),
+                top + (int)Math.Floor(source.Top * height / (double)current.Image.Height),
+                left + (int)Math.Ceiling(source.Right * width / (double)current.Image.Width),
+                top + (int)Math.Ceiling(source.Bottom * height / (double)current.Image.Height));
         }
 
         private void RememberPosition()
@@ -484,11 +518,20 @@ namespace WhalePet
 
         private int BobOffset()
         {
-            if (dragging) return 0;
+            if (dragging || NearScreenEdge()) return 0;
             double phase = Environment.TickCount / 1000.0;
             if (activity == PetState.Playing) return -(int)Math.Round(12 * Math.Abs(Math.Sin(phase * 2.8)));
             if (activity == PetState.Daydreaming) return (int)Math.Round(4 * Math.Sin(phase * 0.7));
             return (int)Math.Round(2 * Math.Sin(phase * 1.5));
+        }
+
+        private bool NearScreenEdge()
+        {
+            Rectangle visible = VisibleSpriteBounds();
+            visible.Offset(Location);
+            Rectangle area = Screen.FromRectangle(visible).WorkingArea;
+            return visible.Left - area.Left < 16 || area.Right - visible.Right < 16
+                || visible.Top - area.Top < 16 || area.Bottom - visible.Bottom < 16;
         }
 
         // --------------------------------------------------------------- render
@@ -606,7 +649,7 @@ namespace WhalePet
             if (activity == PetState.Slacking) rotation = (float)(3 * Math.Sin(phase * 1.2));
             if (activity == PetState.Bored) rotation = 0f;
             if (activity == PetState.Playing) rotation = (float)(7 * Math.Sin(phase * 3));
-            if (dragging) rotation = -3f;
+            if (dragging || NearScreenEdge()) rotation = 0f;
 
             if (prefs.Shadow)
             {
