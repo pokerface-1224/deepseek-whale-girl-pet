@@ -15,6 +15,24 @@ namespace WhalePet
             {
                 if (pet.ContextMenuStrip.Items[0].Text != "打开 dsh 窗口" || pet.ContextMenuStrip.Items[1].Text != "迷你面板")
                     throw new Exception("Wrong menu order");
+
+                MiniPanel testPanel = new MiniPanel("http://127.0.0.1:18080/test", pet);
+                typeof(PetForm).GetField("miniPanel", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(pet, testPanel);
+
+                // First click: reveals panel
+                ((ToolStripMenuItem)pet.ContextMenuStrip.Items[1]).PerformClick();
+                if (!testPanel.Visible) throw new Exception("MiniPanel should be visible on first click");
+
+                // Second click: was throwing InvalidOperationException when already visible
+                ((ToolStripMenuItem)pet.ContextMenuStrip.Items[1]).PerformClick();
+                if (!testPanel.Visible) throw new Exception("MiniPanel should remain visible on second click");
+
+                // Hide then click again
+                testPanel.Hide();
+                ((ToolStripMenuItem)pet.ContextMenuStrip.Items[1]).PerformClick();
+                if (!testPanel.Visible) throw new Exception("MiniPanel should be visible again after hide");
+
+                testPanel.Dispose();
             }
             MiniPanel panel = new MiniPanel(args[0]);
             WebView2 view = (WebView2)typeof(MiniPanel).GetField("browser", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(panel);

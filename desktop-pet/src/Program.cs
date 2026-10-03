@@ -240,9 +240,7 @@ namespace WhalePet
             {
                 if (miniPanel != null && !miniPanel.IsDisposed)
                 {
-                    miniPanel.UpdatePosition(this);
-                    miniPanel.Show(this);
-                    miniPanel.Activate();
+                    miniPanel.Reveal(this);
                     return;
                 }
                 if (!HasHostPipe)
@@ -435,10 +433,7 @@ namespace WhalePet
             }
             if (!line.StartsWith("panel:", StringComparison.Ordinal)) return;
             if (miniPanel == null || miniPanel.IsDisposed) miniPanel = new MiniPanel(line.Substring(6), this);
-            miniPanel.SetAnchor(this);
-            miniPanel.UpdatePosition(this);
-            miniPanel.Show(this);
-            miniPanel.Activate();
+            miniPanel.Reveal(this);
         }
 
         internal void StartTask()

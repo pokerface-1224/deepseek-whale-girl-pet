@@ -182,6 +182,32 @@ namespace WhalePet
             Location = new Point(targetX, targetY);
         }
 
+        internal void Reveal(Form anchor = null)
+        {
+            if (IsDisposed) return;
+            if (anchor != null) SetAnchor(anchor);
+            UpdatePosition(anchor);
+            if (!Visible)
+            {
+                try
+                {
+                    if (anchor != null && !anchor.IsDisposed) Show(anchor);
+                    else Show();
+                }
+                catch
+                {
+                    Show();
+                }
+            }
+            else
+            {
+                if (WindowState == FormWindowState.Minimized)
+                    WindowState = FormWindowState.Normal;
+                BringToFront();
+            }
+            Activate();
+        }
+
         private void SetStatusText(string text, bool visible)
         {
             if (IsDisposed || status == null) return;
