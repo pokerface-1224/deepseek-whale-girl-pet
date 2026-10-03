@@ -49,6 +49,18 @@ export function setupSyncRelay(ctx, petManager) {
   };
 }
 
+// Client identity for Platform requests. Must not touch undeclared Cordis
+// properties such as ctx.locale: Cordis throws "without inject" on access.
+function buildClientMetadata() {
+  let locale = 'zh-CN';
+  try { locale = Intl.DateTimeFormat().resolvedOptions().locale || locale; } catch {}
+  return {
+    version: '0.2.0-rc.2',
+    locale,
+    timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60
+  };
+}
+
 export async function getAccountSnapshot(ctx) {
   try {
     const account = ctx.get('deepseekAccount');
@@ -61,11 +73,7 @@ export async function getAccountSnapshot(ctx) {
       return { authenticated: false, user: null, balance: null };
     }
 
-    const clientMetadata = {
-      version: '0.2.0-rc.2',
-      locale: ctx.locale?.getSnapshot?.()?.active || 'zh',
-      timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60
-    };
+    const clientMetadata = buildClientMetadata();
 
     const [profileRes, balanceRes] = await Promise.allSettled([
       account.getProfile ? account.getProfile(clientMetadata) : Promise.resolve(null),
@@ -145,11 +153,7 @@ export async function triggerLogin(ctx, getWebServer, broadcastAccount) {
     }
 
     const callbackOrigin = `http://127.0.0.1:${port}`;
-    const clientMetadata = {
-      version: '0.2.0-rc.2',
-      locale: ctx.locale?.getSnapshot?.()?.active || 'zh',
-      timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60
-    };
+    const clientMetadata = buildClientMetadata();
 
     const openUrl = async (targetUrl) => {
       try {
@@ -203,11 +207,7 @@ export async function triggerLogout(ctx) {
   try {
     const account = ctx.get('deepseekAccount');
     if (!account) throw new Error('Account service unavailable');
-    const clientMetadata = {
-      version: '0.2.0-rc.2',
-      locale: ctx.locale?.getSnapshot?.()?.active || 'zh',
-      timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60
-    };
+    const clientMetadata = buildClientMetadata();
     if (typeof account.signOut === 'function') {
       await account.signOut(clientMetadata);
       return { ok: true };

@@ -1128,9 +1128,11 @@ namespace WhalePet
         {
             using (Font font = new Font("Microsoft YaHei", 9f))
             {
-                SizeF size = graphics.MeasureString(text, font);
                 int paddingX = 9;
                 int paddingY = 5;
+                // Wrap long lines to the layered window's width; anything wider is clipped by the window.
+                int maxTextWidth = Math.Max(60, ClientSize.Width - 8 - paddingX * 2);
+                SizeF size = graphics.MeasureString(text, font, maxTextWidth);
                 int bubbleWidth = (int)Math.Ceiling(size.Width) + paddingX * 2;
                 int bubbleHeight = (int)Math.Ceiling(size.Height) + paddingY * 2;
                 int left = Math.Max(0, Math.Min(ClientSize.Width - bubbleWidth, centerX - bubbleWidth / 2));
@@ -1145,12 +1147,13 @@ namespace WhalePet
                     graphics.DrawPath(border, path);
                 }
 
-                // Little tail pointing at her head.
+                // Little tail pointing at her head, kept under the bubble body.
+                int tailX = Math.Max(left + 12, Math.Min(left + bubbleWidth - 12, centerX));
                 Point[] tail = new Point[]
                 {
-                    new Point(centerX - 4, top + bubbleHeight - 1),
-                    new Point(centerX + 4, top + bubbleHeight - 1),
-                    new Point(centerX, top + bubbleHeight + 6)
+                    new Point(tailX - 4, top + bubbleHeight - 1),
+                    new Point(tailX + 4, top + bubbleHeight - 1),
+                    new Point(tailX, top + bubbleHeight + 6)
                 };
                 using (SolidBrush fill = new SolidBrush(Color.FromArgb(235, 21, 26, 40)))
                 {
@@ -1159,7 +1162,7 @@ namespace WhalePet
 
                 using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(255, 238, 242, 251)))
                 {
-                    graphics.DrawString(text, font, textBrush, left + paddingX, top + paddingY);
+                    graphics.DrawString(text, font, textBrush, new RectangleF(left + paddingX, top + paddingY, size.Width + 1, size.Height + 1));
                 }
             }
         }

@@ -143,6 +143,8 @@ assert.match(accountResBody, /"authenticated":false/);
 
 // Test 6b: Account snapshot with async authenticated service
 const authedCtx = {
+  // Cordis throws on undeclared service properties; the snapshot must not touch them.
+  get locale() { throw new Error('cannot get property "locale" without inject'); },
   get(name) {
     if (name === 'deepseekAccount') {
       return {
