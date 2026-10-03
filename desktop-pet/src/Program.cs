@@ -328,6 +328,7 @@ namespace WhalePet
         {
             if (!Visible) Show();
             WindowState = FormWindowState.Normal;
+            Location = ClampToScreen(Location);
             TopMost = prefs.TopMost;
             BringToFront();
             Activate();
@@ -396,13 +397,11 @@ namespace WhalePet
         {
             if (string.IsNullOrEmpty(line)) return;
             string trimmed = line.Trim();
-            if (trimmed == "wake")
+            if (trimmed == "wake" || trimmed.StartsWith("wake:", StringComparison.Ordinal))
             {
-                if (!Visible) Show();
-                TopMost = prefs.TopMost;
-                BringToFront();
-                Activate();
-                Greet();
+                WakeUpAndShow();
+                if (trimmed.StartsWith("wake:", StringComparison.Ordinal))
+                    Console.WriteLine("pet:awake:" + trimmed.Substring(5));
                 return;
             }
             if (line.StartsWith("panel-error:", StringComparison.Ordinal))
@@ -622,6 +621,7 @@ namespace WhalePet
                 || (message.Msg == 0x0312 && message.WParam.ToInt32() == HOTKEY_ID))
             {
                 WakeUpAndShow();
+                message.Result = new IntPtr(1);
                 return;
             }
             if (message.Msg == WM_NCHITTEST && prefs != null && prefs.ClickThrough)
@@ -954,6 +954,50 @@ namespace WhalePet
         private static string logPath;
         private static volatile bool hostClosed;
 
+        [DllImport("user32.dll")] private static extern IntPtr GetProcessWindowStation();
+        [DllImport("user32.dll")] private static extern IntPtr GetThreadDesktop(uint threadId);
+        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetUserObjectInformation(IntPtr handle, int index, StringBuilder name, int length, out int needed);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindWindow(string className, string title);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wParam, IntPtr lParam,
+            uint flags, uint timeout, out IntPtr result);
+
+        private static string ObjectName(IntPtr handle)
+        {
+            var name = new StringBuilder(256);
+            int needed;
+            if (!GetUserObjectInformation(handle, 2, name, name.Capacity * 2, out needed))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            return name.ToString();
+        }
+
+        private static string InstanceName()
+        {
+            // A session can contain multiple desktops (including automation desktops).
+            // A pet on another desktop cannot receive our window messages or be seen here.
+            string desktop = ObjectName(GetProcessWindowStation()) + "\\" + ObjectName(GetThreadDesktop(GetCurrentThreadId()));
+            using (var hash = System.Security.Cryptography.SHA256.Create())
+                return @"Local\DSH.WhalePet." + BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(desktop))).Replace("-", "");
+        }
+
+        private static bool WakeExisting()
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            do
+            {
+                IntPtr window = FindWindow(null, "鲸鱼娘");
+                IntPtr result;
+                if (window != IntPtr.Zero && SendMessageTimeout(window, PetForm.WakeWindowMessage,
+                    IntPtr.Zero, IntPtr.Zero, 0x0002, 1000, out result) != IntPtr.Zero && result == new IntPtr(1))
+                    return true;
+                System.Threading.Thread.Sleep(100);
+            } while (DateTime.UtcNow < deadline);
+            return false;
+        }
+
         private static void Log(string message)
         {
             if (string.IsNullOrEmpty(logPath)) return;
@@ -972,12 +1016,17 @@ namespace WhalePet
         {
             PetForm.WakeWindowMessage = PetForm.RegisterWindowMessage("DSH_WHALE_PET_WAKE_MESSAGE");
             bool created;
-            using (var instance = new System.Threading.Mutex(true, @"Local\DSH.WhalePet", out created))
+            using (var instance = new System.Threading.Mutex(true, InstanceName(), out created))
             {
                 if (!created)
                 {
-                    // 已有实例在运行：广播唤醒已有窗口并直接退出新实例
-                    PetForm.PostMessage(PetForm.HWND_BROADCAST, PetForm.WakeWindowMessage, IntPtr.Zero, IntPtr.Zero);
+                    // Report success only after the existing UI thread acknowledges showing the window.
+                    if (WakeExisting()) Console.WriteLine("pet:forwarded");
+                    else
+                    {
+                        Console.Error.WriteLine("Existing pet did not acknowledge wake-up on this desktop");
+                        Environment.ExitCode = 1;
+                    }
                     return;
                 }
                 try { Run(args); }
@@ -1045,6 +1094,7 @@ namespace WhalePet
                     // Deterministic arrival: raise her without stealing focus, and say
                     // hello, so "did it start?" is answerable at a glance.
                     form.Greet();
+                    Console.WriteLine("pet:ready");
                     if (!smoke) return;
                     Timer quit = new Timer { Interval = smokeMilliseconds };
                     quit.Tick += delegate { quit.Stop(); form.Close(); };

@@ -105,6 +105,22 @@ await launchRoute.handler({ method: 'POST' }, {
 assert.equal(launchCalls, 2, 'Should call launchOrWake twice');
 assert.match(launchResBody, /"status":"woken"/);
 
+// HTTP success must wait for the native acknowledgement; failures use 503.
+const originalLaunch = mockPetManager.launchOrWake;
+let acknowledge;
+mockPetManager.launchOrWake = () => new Promise(resolve => { acknowledge = resolve; });
+let ackStatus;
+const waitingLaunch = launchRoute.handler({ method: 'POST' }, {
+  writeHead: status => { ackStatus = status; },
+  end: data => { launchResBody = data; }
+});
+assert.equal(ackStatus, undefined);
+acknowledge({ ok: false, error: 'No visible window acknowledgement' });
+await waitingLaunch;
+assert.equal(ackStatus, 503);
+assert.match(launchResBody, /No visible window acknowledgement/);
+mockPetManager.launchOrWake = originalLaunch;
+
 // Test 5: Status route
 const statusRoute = routes.get('/pet-whale/status');
 assert.ok(statusRoute, 'GET /pet-whale/status route exists');
@@ -118,7 +134,7 @@ assert.match(statusResBody, /"running":true/);
 // Test 6: PetManager class structure test
 const pm = new PetManager({ platform: 'linux' });
 assert.equal(pm.isAlive(), false);
-const res = pm.launchOrWake();
+const res = await pm.launchOrWake();
 assert.equal(res.ok, false, 'Non-win32 should not launch');
 
 relay.dispose();

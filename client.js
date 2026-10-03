@@ -24,7 +24,10 @@ window.__ModuleLoader__.load({
           body: JSON.stringify(body)
         })
       });
-      if (!response.ok) throw new Error(`pet-whale/${path}: HTTP ${response.status}`);
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({}));
+        throw new Error(`pet-whale/${path}: HTTP ${response.status}${failure.error ? ` (${failure.error})` : ""}`);
+      }
       const result = await response.json();
       if (result.ok === false) throw new Error(`pet-whale/${path}: ${result.error || result.status || "failed"}`);
       return result;

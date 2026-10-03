@@ -58,6 +58,13 @@ node tools/check_package.mjs
 
 # 执行会话同步机制单元测试
 node tools/test_sync.mjs
+
+# 校验客户端入口与原生进程确认协议
+node tools/test_client.mjs
+node tools/test_native_host.mjs
+
+# Windows：实际启动桌宠，验证隐藏后唤醒与重复实例唤醒
+node tools/test_native_host.mjs --native
 ```
 
 ---

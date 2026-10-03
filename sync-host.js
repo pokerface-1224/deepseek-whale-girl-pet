@@ -95,8 +95,8 @@ function createSyncRelay(ctx, petManager) {
         res.end(JSON.stringify({ error: 'Pet manager unavailable' }));
         return;
       }
-      const result = petManager.launchOrWake();
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      const result = await petManager.launchOrWake();
+      res.writeHead(result.ok ? 200 : 503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(result));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
