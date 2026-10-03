@@ -147,7 +147,7 @@ activate();
 cleanup();
 assert.equal(routes.size, 0);
 activate();
-assert.equal(routes.size, 6);
+assert.equal(routes.size, 8);
 restarting.dispose();
 
 // Registration errors must surface, and partial registrations must be undone.

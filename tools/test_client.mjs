@@ -26,7 +26,9 @@ vm.runInNewContext(readFileSync(new URL('../client.js', import.meta.url), 'utf8'
     close() { this.closed = true; }
   },
   console: { warn: (...args) => errors.push(args), error: (...args) => errors.push(args) },
-  setTimeout: callback => callback()
+  setTimeout: callback => callback(),
+  setInterval: () => 123,
+  clearInterval: () => {}
 });
 const services = {
   uiWorkspace: { selection: { subscribe: () => () => {}, getSnapshot: () => ({ sessionId: 'initial-session' }) } },
