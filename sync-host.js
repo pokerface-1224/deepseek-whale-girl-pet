@@ -28,7 +28,7 @@ export function setupSyncRelay(ctx, petManager) {
   // webServer can appear after this plugin starts. Cordis also re-enters
   // this scope when the service is replaced, disposing the old routes first.
   let currentServer = null;
-  const stop = ctx.inject(['webServer'], scope => {
+  const stop = ctx.inject(['webServer', 'connection'], scope => {
     currentServer = scope.get('webServer');
     const current = createSyncRelay(scope, petManager, broadcastAccount);
     relay = current;
@@ -80,13 +80,12 @@ export async function getAccountSnapshot(ctx) {
       account.getBalance ? account.getBalance(clientMetadata) : Promise.resolve(null)
     ]);
 
-    let user = { name: '已登录用户', contact: '' };
+    let user = { name: '已登录用户' };
     if (profileRes.status === 'fulfilled' && profileRes.value) {
       const p = profileRes.value.value || profileRes.value;
       if (p) {
         user = {
-          name: p.name || p.contact || '已登录用户',
-          contact: p.contact || ''
+          name: p.name || '已登录用户'
         };
       }
     }
@@ -221,27 +220,76 @@ export async function triggerLogout(ctx) {
 
 function createSyncRelay(ctx, petManager, broadcastAccount) {
   const server = ctx.get('webServer');
+  const connection = ctx.get('connection');
   if (!server || typeof server.register !== 'function') {
     throw new Error('[pet-whale] webServer.register unavailable');
   }
 
   let lastSelection = null;
-  const clients = new Set();
+  const clients = new Map();
   const disposers = [];
+
+  // Reuse Harness's authority/origin fence and signed, expiring browser cookie.
+  // An unavailable or incompatible auth service must never open these routes.
+  const requestRejection = req => {
+    try {
+      if (typeof connection?.admit !== 'function') return 503;
+      const admission = connection.admit(req);
+      if (admission?.peer) return null;
+      return admission?.rejection === 403 ? 403 : 401;
+    } catch {
+      return 503;
+    }
+  };
+
+  const closeClient = client => {
+    clients.delete(client);
+    try { client.end(); } catch {}
+  };
+  const broadcast = data => {
+    const message = `data: ${JSON.stringify(data)}\n\n`;
+    for (const [client, req] of clients) {
+      if (requestRejection(req) !== null) { closeClient(client); continue; }
+      try { client.write(message); } catch { closeClient(client); }
+    }
+  };
+  // Long-lived SSE clients must also lose access when their original cookie expires.
+  const authSweep = setInterval(() => {
+    for (const [client, req] of clients) {
+      if (requestRejection(req) !== null) closeClient(client);
+    }
+  }, 30000);
+  authSweep.unref?.();
+
+  const protect = (handler, methods) => (req, res) => {
+    const rejection = requestRejection(req);
+    if (rejection !== null) {
+      res.writeHead(rejection, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, error: rejection === 403 ? 'Forbidden'
+        : rejection === 401 ? 'Authentication required' : 'Authentication service unavailable' }));
+      return;
+    }
+    if (!methods.includes(req.method)) {
+      res.writeHead(405, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Allow: methods.join(', ') });
+      res.end(JSON.stringify({ ok: false, error: 'Method not allowed' }));
+      return;
+    }
+    res.setHeader?.('Cache-Control', 'no-store');
+    return handler(req, res);
+  };
 
   const handleSseGet = (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*'
+      'Cache-Control': 'no-store, no-transform',
+      'Connection': 'keep-alive'
     });
 
     if (lastSelection) {
       res.write(`data: ${JSON.stringify(lastSelection)}\n\n`);
     }
 
-    clients.add(res);
+    clients.set(res, req);
     res.flushHeaders?.();
     res.on('close', () => {
       clients.delete(res);
@@ -259,16 +307,9 @@ function createSyncRelay(ctx, petManager, broadcastAccount) {
         const payload = JSON.parse(body);
         if (payload && payload.sessionId) {
           lastSelection = payload;
-          const message = `data: ${JSON.stringify(payload)}\n\n`;
-          for (const client of clients) {
-            try {
-              client.write(message);
-            } catch (e) {
-              clients.delete(client);
-            }
-          }
+          broadcast(payload);
         }
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -284,19 +325,19 @@ function createSyncRelay(ctx, petManager, broadcastAccount) {
     if (req.method === 'POST') {
       return handleSyncPost(req, res);
     }
-    res.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, {});
     res.end();
   };
 
   const handleLaunch = async (req, res) => {
     try {
       if (!petManager) {
-        res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(503, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Pet manager unavailable' }));
         return;
       }
       const result = await petManager.launchOrWake();
-      res.writeHead(result.ok ? 200 : 503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(result.ok ? 200 : 503, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -306,7 +347,7 @@ function createSyncRelay(ctx, petManager, broadcastAccount) {
 
   const handleStatus = async (req, res) => {
     const running = petManager ? petManager.isAlive() : false;
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ running }));
   };
 
@@ -323,7 +364,7 @@ function createSyncRelay(ctx, petManager, broadcastAccount) {
         if (petManager) {
           petManager.sendPetMessage(isWorking ? "task:start\n" : "task:end\n");
         }
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, isWorking }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -336,11 +377,11 @@ function createSyncRelay(ctx, petManager, broadcastAccount) {
     try {
       if (req.method === 'GET') {
         const snapshot = await getAccountSnapshot(ctx);
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, ...snapshot }));
         return;
       }
-      res.writeHead(405, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Method not allowed' }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -351,12 +392,12 @@ function createSyncRelay(ctx, petManager, broadcastAccount) {
   const handleAccountLogin = async (req, res) => {
     try {
       if (req.method === 'POST') {
-        const result = await triggerLogin(ctx);
-        res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        const result = await triggerLogin(ctx, () => server, broadcastAccount);
+        res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
         return;
       }
-      res.writeHead(405, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Method not allowed' }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -368,11 +409,11 @@ function createSyncRelay(ctx, petManager, broadcastAccount) {
     try {
       if (req.method === 'POST') {
         const result = await triggerLogout(ctx);
-        res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
         return;
       }
-      res.writeHead(405, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Method not allowed' }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -382,43 +423,36 @@ function createSyncRelay(ctx, petManager, broadcastAccount) {
 
   // Register exactly one handler per path (webserver throws on duplicate paths)
   try {
-    for (const [name, handler] of [
-      ['sync', handleSync],
-      ['launch', handleLaunch],
-      ['status', handleStatus],
-      ['task', handleTask],
-      ['account', handleAccount],
-      ['account/login', handleAccountLogin],
-      ['account/logout', handleAccountLogout]
+    for (const [name, handler, methods] of [
+      ['sync', handleSync, ['GET', 'POST']],
+      ['launch', handleLaunch, ['POST']],
+      ['status', handleStatus, ['GET']],
+      ['task', handleTask, ['POST']],
+      ['account', handleAccount, ['GET']],
+      ['account/login', handleAccountLogin, ['POST']],
+      ['account/logout', handleAccountLogout, ['POST']]
     ]) {
       for (const path of [`/pet-whale/${name}`, `/api/pet-whale/${name}`]) {
-        disposers.push(server.register({ kind: 'exact', path, handler }));
+        disposers.push(server.register({ kind: 'exact', path, handler: protect(handler, methods) }));
       }
     }
   } catch (error) {
+    clearInterval(authSweep);
     for (const dispose of disposers.reverse()) dispose();
     throw error;
   }
 
   return {
     getLastSelection: () => lastSelection,
-    broadcastSse: (data) => {
-      const message = `data: ${JSON.stringify(data)}\n\n`;
-      for (const client of clients) {
-        try { client.write(message); } catch { clients.delete(client); }
-      }
-    },
+    broadcastSse: broadcast,
     dispose: () => {
+      clearInterval(authSweep);
       for (const dispose of disposers) {
         try {
           if (typeof dispose === 'function') dispose();
         } catch (e) {}
       }
-      for (const client of clients) {
-        try {
-          client.end();
-        } catch (e) {}
-      }
+      for (const client of clients.keys()) closeClient(client);
       clients.clear();
     }
   };

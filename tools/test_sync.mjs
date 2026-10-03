@@ -17,11 +17,11 @@ let cleanup;
 let stopped = false;
 const mockCtx = {
   inject(names, callback) {
-    assert.deepEqual(names, ['webServer']);
+    assert.deepEqual(names, ['webServer', 'connection']);
     activate = () => {
       assert.equal(stopped, false);
       callback({
-        get: name => name === 'webServer' ? mockServer : null,
+        get: name => name === 'webServer' ? mockServer : name === 'connection' ? { admit: () => ({ peer: {} }) } : null,
         effect: setup => { cleanup = setup(); }
       });
     };
@@ -169,6 +169,7 @@ const authedCtx = {
 const authedSnapshot = await getAccountSnapshot(authedCtx);
 assert.equal(authedSnapshot.authenticated, true);
 assert.equal(authedSnapshot.user.name, '测试小鲸鱼');
+assert.equal(Object.hasOwn(authedSnapshot.user, 'contact'), false, 'Contact is not needed by the pet');
 assert.equal(authedSnapshot.balance.normal, '88.50');
 assert.equal(authedSnapshot.balance.bonus, '12.00');
 assert.equal(authedSnapshot.balance.total, '100.50');

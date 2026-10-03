@@ -68,6 +68,9 @@ node tools/check_package.mjs
 # 执行会话同步机制单元测试
 node tools/test_sync.mjs
 
+# HTTP 鉴权、来源检查及同步连接过期处理
+node tools/test_auth.mjs
+
 # 校验客户端入口与原生进程确认协议
 node tools/test_client.mjs
 node tools/test_native_host.mjs
@@ -83,6 +86,10 @@ node tools/test_native_host.mjs --native
 ```
 
 ---
+
+## 隐私与接口认证
+
+桌宠 HTTP 接口复用 Harness 的 `connection.admit()` 校验认证 Cookie、Host 和请求来源，包括账号接口和 SSE 会话同步。未认证请求返回401，不可信来源返回403；认证服务不可用时拒绝请求。主窗口与迷你面板通过 Harness 的正常认证流程获得 Cookie，无需另设插件密码。同步连接在凭据失效时关闭，接口不允许任意跨域访问，账号快照不返回联系方式。
 
 ## 🎨 鸣谢与署名 (Credits)
 

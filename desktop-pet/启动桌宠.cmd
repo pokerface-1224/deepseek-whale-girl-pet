@@ -14,9 +14,9 @@ rem
 rem  A startup log is always written to %TEMP%\whalepet-startup.log, so a silent
 rem  failure (security software terminating the process) still leaves evidence.
 rem
-rem  NOTE: 360 Total Security is installed on this machine and challenges new
-rem  unsigned executables. If the pet does not appear, allow WhalePet.exe in
-rem  360 (Trusted Zone / add to whitelist) - the prompt is 360, not Windows.
+rem  Security software may prompt when running a new unsigned executable.
+rem  If the pet does not appear, review the startup log and the security
+rem  software's notifications before deciding whether to allow the program.
 rem ---------------------------------------------------------------------------
 
 setlocal
@@ -48,7 +48,7 @@ echo   exe : %PET%
 echo   log : %LOG%
 echo.
 echo If nothing appears, check that log file; if a security dialog asks about
-echo WhalePet.exe, allow it once (360 blocks new unsigned programs by default).
+echo WhalePet.exe, review the prompt and decide whether to allow the program.
 echo.
 
 start "" "%PET%" "--log=%LOG%" %*
