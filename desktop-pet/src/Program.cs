@@ -297,6 +297,10 @@ namespace WhalePet
             home.Click += delegate { MoveToDefaultCorner(); };
             menu.Items.Add(home);
 
+            ToolStripMenuItem hide = new ToolStripMenuItem("暂时隐藏 (可从 Harness 重新唤起)");
+            hide.Click += delegate { Hide(); };
+            menu.Items.Add(hide);
+
             ToolStripMenuItem quit = new ToolStripMenuItem("退出桌宠");
             quit.Click += delegate { Close(); };
             menu.Items.Add(quit);
@@ -319,6 +323,17 @@ namespace WhalePet
 
         internal void ReceiveHostMessage(string line)
         {
+            if (string.IsNullOrEmpty(line)) return;
+            string trimmed = line.Trim();
+            if (trimmed == "wake")
+            {
+                if (!Visible) Show();
+                TopMost = prefs.TopMost;
+                BringToFront();
+                Activate();
+                Greet();
+                return;
+            }
             if (line.StartsWith("panel-error:", StringComparison.Ordinal))
             {
                 MessageBox.Show("DSH 会话服务尚未就绪，请稍后重试。", "迷你面板");

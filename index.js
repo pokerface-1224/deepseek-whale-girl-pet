@@ -6,20 +6,22 @@ export function apply(ctx) {
   // Cordis disposes this effect on plugin disable/reload.
   // Native startup failure must never prevent Harness from booting.
   try {
-    const syncRelay = setupSyncRelay(ctx);
+    let syncRelay = null;
 
-    const stopPet = startDesktopPet({
+    const petController = startDesktopPet({
       getPanelUrl() {
         const server = ctx.get('webServer');
         const connection = ctx.get('connection');
         if (!server?.port || !connection?.authenticatedUrl) throw new Error('DSH web connection is not ready');
         return connection.authenticatedUrl(`http://127.0.0.1:${server.port}`);
       },
-      getLastSelection: syncRelay.getLastSelection
+      getLastSelection: () => syncRelay?.getLastSelection()
     });
 
+    syncRelay = setupSyncRelay(ctx, petController.manager);
+
     ctx.effect(() => () => {
-      stopPet();
+      petController.stop();
       syncRelay.dispose();
     });
   } catch (error) {
