@@ -282,7 +282,13 @@ namespace WhalePet
             ToolStripMenuItem mini = new ToolStripMenuItem("迷你面板");
             mini.Click += delegate
             {
-                if (miniPanel != null && !miniPanel.IsDisposed) { miniPanel.Show(); miniPanel.Activate(); return; }
+                if (miniPanel != null && !miniPanel.IsDisposed)
+                {
+                    miniPanel.UpdatePosition(this);
+                    miniPanel.Show(this);
+                    miniPanel.Activate();
+                    return;
+                }
                 if (!HasHostPipe)
                 {
                     MessageBox.Show("请通过 DSH 插件启动桌宠，以连接当前会话。", "迷你面板", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -381,6 +387,24 @@ namespace WhalePet
             catch { }
         }
 
+        protected override void OnLocationChanged(EventArgs e)
+        {
+            base.OnLocationChanged(e);
+            if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible)
+            {
+                miniPanel.UpdatePosition(this);
+            }
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (!Visible && miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible)
+            {
+                miniPanel.Hide();
+            }
+        }
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             try { UnregisterHotKey(Handle, HOTKEY_ID); } catch { }
@@ -410,10 +434,9 @@ namespace WhalePet
                 return;
             }
             if (!line.StartsWith("panel:", StringComparison.Ordinal)) return;
-            if (miniPanel == null || miniPanel.IsDisposed) miniPanel = new MiniPanel(line.Substring(6));
-            Rectangle area = Screen.FromControl(this).WorkingArea;
-            miniPanel.Location = new Point(Math.Max(area.Left, Math.Min(area.Right - miniPanel.Width, Left - miniPanel.Width - 8)),
-                Math.Max(area.Top, Math.Min(area.Bottom - miniPanel.Height, Top)));
+            if (miniPanel == null || miniPanel.IsDisposed) miniPanel = new MiniPanel(line.Substring(6), this);
+            miniPanel.SetAnchor(this);
+            miniPanel.UpdatePosition(this);
             miniPanel.Show(this);
             miniPanel.Activate();
         }
