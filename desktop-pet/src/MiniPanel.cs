@@ -46,8 +46,15 @@ namespace WhalePet
                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
 
             Text = "鲸鱼娘 · 随身终端";
-            FormBorderStyle = FormBorderStyle.None;
-            Size = new Size(420, 580);
+            int dpiX = 96;
+            try
+            {
+                using (Graphics g = CreateGraphics())
+                    dpiX = (int)g.DpiX;
+            }
+            catch { }
+            float dpiScale = Math.Max(1.0f, dpiX / 96.0f);
+            Size = new Size((int)Math.Round(420 * dpiScale), (int)Math.Round(580 * dpiScale));
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
             ShowInTaskbar = false;

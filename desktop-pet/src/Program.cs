@@ -1118,9 +1118,41 @@ namespace WhalePet
             }
         }
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+        [DllImport("shcore.dll", SetLastError = true)]
+        private static extern int SetProcessDpiAwareness(int awareness);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetProcessDPIAware();
+
+        private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+
+        private static void EnableHighDpi()
+        {
+            try
+            {
+                if (Environment.OSVersion.Version.Major >= 10 && SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+                    return;
+            }
+            catch { }
+            try
+            {
+                // PROCESS_PER_MONITOR_DPI_AWARE = 2
+                SetProcessDpiAwareness(2);
+                return;
+            }
+            catch { }
+            try
+            {
+                SetProcessDPIAware();
+            }
+            catch { }
+        }
+
         [STAThread]
         private static void Main(string[] args)
         {
+            EnableHighDpi();
             PetForm.WakeWindowMessage = PetForm.RegisterWindowMessage("DSH_WHALE_PET_WAKE_MESSAGE");
             bool created;
             using (var instance = new System.Threading.Mutex(true, InstanceName(), out created))
