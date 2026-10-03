@@ -1,6 +1,7 @@
 # 鲸鱼娘桌宠 (DeepSeek Whale Girl Pet)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Code License: MIT](https://img.shields.io/badge/Code_License-MIT-blue.svg)](LICENSE)
+[![Art License: CC BY-NC-SA 4.0](https://img.shields.io/badge/Art_License-CC_BY--NC--SA_4.0-orange.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6.svg)](#系统要求)
 
 专为 **DeepSeek Harness** 设计的 Windows 原生桌面宠物插件。将鲸鱼女仆带到你的桌面，支持多种交互动作，并提供与 DeepSeek Harness 实时同步的迷你操作面板。
@@ -71,4 +72,10 @@ node tools/test_native_host.mjs --native
 
 ## 📄 开源许可证
 
-本项目基于 [MIT License](LICENSE) 许可证开源。
+本项目采用分项许可协议：
+
+- **代码部分**：基于 [MIT License](LICENSE) 许可证开源。涵盖所有源代码、配置、编译构建脚本与底层通信实现。
+- **美术与角色图像素材**：涉及“鲸鱼娘”形象的所有角色立绘、动作素材、应用图标及预览图（包含 `desktop-pet/art/` 目录下的所有图像素材、`icon.png` 等）采用 **[CC BY-NC-SA 4.0 (知识共享 署名-非商业性使用-相同方式共享 4.0 国际许可协议)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)** 授权。
+  - 允许在非商业用途下免费使用、传播与二次创作；
+  - 二创或转载须保留原作者署名，并以相同协议进行共享发布；
+  - **严禁任何商业盈利性用途**。
