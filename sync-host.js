@@ -110,9 +110,31 @@ function createSyncRelay(ctx, petManager) {
     res.end(JSON.stringify({ running }));
   };
 
+  const handleTask = async (req, res) => {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+    });
+
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const isWorking = Boolean(payload?.isWorking);
+        if (petManager) {
+          petManager.sendPetMessage(isWorking ? "task:start\n" : "task:end\n");
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: true, isWorking }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+  };
+
   // Register exactly one handler per path (webserver throws on duplicate paths)
   try {
-    for (const [name, handler] of [['sync', handleSync], ['launch', handleLaunch], ['status', handleStatus]]) {
+    for (const [name, handler] of [['sync', handleSync], ['launch', handleLaunch], ['status', handleStatus], ['task', handleTask]]) {
       for (const path of [`/pet-whale/${name}`, `/api/pet-whale/${name}`]) {
         disposers.push(server.register({ kind: 'exact', path, handler }));
       }

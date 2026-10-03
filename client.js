@@ -208,12 +208,35 @@ window.__ModuleLoader__.load({
             }
           } catch (e) {}
         };
-        window.addEventListener("message", onWindowMessage);
+        // 1.1 Task status tracking (Working when DSH is generating / executing)
+        let lastWorkingState = null;
+        const reportTaskState = () => {
+          try {
+            const isWorking = Boolean(
+              document.querySelector('button[aria-label="停止生成"], button[aria-label="Stop generating"], button[aria-label*="停止"], button[aria-label*="Stop"], [data-generating="true"], .dsh-running-task')
+            );
+            if (isWorking !== lastWorkingState) {
+              lastWorkingState = isWorking;
+              postPet("task", { isWorking }).catch(() => {});
+            }
+          } catch (e) {}
+        };
+
+        const taskInterval = setInterval(reportTaskState, 800);
+        let taskObserver = null;
+        try {
+          taskObserver = new MutationObserver(() => reportTaskState());
+          if (typeof document !== "undefined" && document.body) {
+            taskObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label", "disabled", "data-generating"] });
+          }
+        } catch (e) {}
 
         ctx.effect(() => () => {
           if (unsub) unsub();
           if (eventSource) eventSource.close();
           window.removeEventListener("message", onWindowMessage);
+          clearInterval(taskInterval);
+          if (taskObserver) taskObserver.disconnect();
         });
       }
 

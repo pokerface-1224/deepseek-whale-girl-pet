@@ -23,6 +23,16 @@ export class PetManager {
     return Boolean(this.child && !this.child.killed && this.child.exitCode === null);
   }
 
+  sendPetMessage(msg) {
+    if (this.child?.stdin && !this.child.stdin.destroyed && this.child.stdin.writable) {
+      try {
+        this.child.stdin.write(msg.endsWith('\n') ? msg : msg + '\n');
+      } catch (e) {
+        this.warn(`[pet-whale] sendPetMessage error: ${e.message}`);
+      }
+    }
+  }
+
   startChild() {
     if (this.platform !== 'win32' || this.stopped) return false;
     this.ready = false;

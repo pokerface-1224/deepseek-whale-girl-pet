@@ -20,7 +20,7 @@ using System.Windows.Forms;
 
 namespace WhalePet
 {
-    internal enum PetState { Normal, Thinking, Daydreaming, Slacking, Bored, Playing }
+    internal enum PetState { Normal, Working, Playing, Slacking, Thinking, Sleep }
     /// <summary>One pose of the character sheet, with where its eyes are.</summary>
     internal sealed class Pose
     {
@@ -168,11 +168,16 @@ namespace WhalePet
         private DateTime lastActive = DateTime.Now;
         private PetState activity = PetState.Normal;
         private DateTime stateSince = DateTime.Now;
-        private int nextActivity;
         private Bitmap frame;
         private MiniPanel miniPanel;
         private NotifyIcon trayIcon;
         internal bool HasHostPipe;
+
+        private bool isTaskRunning = false;
+        private DateTime lastTaskFinished = DateTime.MinValue;
+        private static readonly PetState[] PostTaskStates = new PetState[] { PetState.Playing, PetState.Slacking, PetState.Thinking };
+        private int postTaskIndex = 0;
+        private const int SleepAfterSeconds = 600; // 10 minutes
 
         private bool dragging;
         private Point dragCursorStart;
@@ -428,6 +433,16 @@ namespace WhalePet
                     Console.WriteLine("pet:awake:" + trimmed.Substring(5));
                 return;
             }
+            if (trimmed == "task:start" || trimmed == "state:working")
+            {
+                StartTask();
+                return;
+            }
+            if (trimmed == "task:end" || trimmed == "state:idle")
+            {
+                EndTask();
+                return;
+            }
             if (line.StartsWith("panel-error:", StringComparison.Ordinal))
             {
                 MessageBox.Show("DSH 会话服务尚未就绪，请稍后重试。", "迷你面板");
@@ -441,6 +456,23 @@ namespace WhalePet
             miniPanel.Activate();
         }
 
+        internal void StartTask()
+        {
+            isTaskRunning = true;
+            lastActive = DateTime.Now;
+            SetActivity(PetState.Working);
+        }
+
+        internal void EndTask()
+        {
+            isTaskRunning = false;
+            lastTaskFinished = DateTime.Now;
+            lastActive = DateTime.Now;
+            stateSince = DateTime.Now;
+            postTaskIndex = 0;
+            SetActivity(PetState.Playing);
+        }
+
         private static string Label(string pose)
         {
             if (pose == "front") return "正面";
@@ -450,8 +482,19 @@ namespace WhalePet
 
         private void LoadPoses()
         {
-            foreach (string name in new string[] { "thinking", "daydreaming", "slacking", "bored", "playing" })
-                poses[name] = new Pose(name, Path.Combine(artDirectory, name + ".png"), 0, 0, 0, 0, 0);
+            foreach (string name in new string[] { "working", "playing", "slacking", "thinking", "sleep" })
+            {
+                string path = Path.Combine(artDirectory, name + ".png");
+                if (File.Exists(path))
+                    poses[name] = new Pose(name, path, 0, 0, 0, 0, 0);
+            }
+            // Backward-compatibility fallback
+            foreach (string legacy in new string[] { "daydreaming", "bored" })
+            {
+                string path = Path.Combine(artDirectory, legacy + ".png");
+                if (File.Exists(path) && !poses.ContainsKey(legacy))
+                    poses[legacy] = new Pose(legacy, path, 0, 0, 0, 0, 0);
+            }
             // Eye geometry measured off the artwork (see tools/cut_sprites.py).
             poses["front"] = new Pose("front", Path.Combine(artDirectory, "front.png"), 0.495f, 0.075f, 0.150f, 0.265f, 0.625f);
             poses["side"] = new Pose("side", Path.Combine(artDirectory, "side.png"), 0.495f, 0.075f, 0.120f, 0.300f, 0.560f);
@@ -562,21 +605,20 @@ namespace WhalePet
         private void Touch()
         {
             lastActive = DateTime.Now;
-            activity = PetState.Normal;
             stateSince = lastActive;
             bubble = null;
         }
 
         private static string StateLabel(PetState value)
         {
-            return new string[] { "普通", "思考", "发呆", "摸鱼", "无聊", "玩耍" }[(int)value];
+            return new string[] { "普通", "工作 (奋笔疾书)", "玩耍 (欢快奔跑)", "摸鱼 (抱抱玩偶)", "思考 (云状气泡)", "睡觉 (盖被安睡)" }[(int)value];
         }
 
         private void SetActivity(PetState value)
         {
-            Touch();
             activity = value;
-            if (value != PetState.Normal) current = poses[value.ToString().ToLowerInvariant()];
+            string key = value.ToString().ToLowerInvariant();
+            if (value != PetState.Normal && poses.ContainsKey(key)) current = poses[key];
             else current = poses.ContainsKey(prefs.Pose) ? poses[prefs.Pose] : poses["front"];
             ApplySize();
             RenderFrame();
@@ -585,19 +627,52 @@ namespace WhalePet
         private void AdvanceActivity(DateTime now)
         {
             if (dragging || (ContextMenuStrip != null && ContextMenuStrip.Visible)) return;
-            if ((now - lastActive).TotalSeconds < IdleAfterSeconds) return;
-            if (activity != PetState.Normal && (now - stateSince).TotalSeconds < 10) return;
-            SetActivity((PetState)(1 + nextActivity++ % 5));
-            // An automatic state change is not user activity.
-            lastActive = now.AddSeconds(-IdleAfterSeconds);
-            stateSince = now;
+
+            // 1. DSH 任务执行中：固定为工作状态（侧后方视角，奋笔疾书）
+            if (isTaskRunning)
+            {
+                if (activity != PetState.Working)
+                {
+                    SetActivity(PetState.Working);
+                    stateSince = now;
+                }
+                return;
+            }
+
+            // 2. 任务结束后 / 用户闲置状态检测
+            double secondsSinceActive = (now - lastActive).TotalSeconds;
+
+            // 2.1 超过 10 分钟 (600秒) 无操作且无任务：切换为 sleep (盖着被子睡觉)
+            if (secondsSinceActive >= SleepAfterSeconds)
+            {
+                if (activity != PetState.Sleep)
+                {
+                    SetActivity(PetState.Sleep);
+                    stateSince = now;
+                }
+                return;
+            }
+
+            // 2.2 10 分钟内活跃期：在玩耍 (Playing)、摸鱼 (Slacking)、思考 (Thinking) 之间轮播切换
+            if (activity == PetState.Sleep || activity == PetState.Working || (now - stateSince).TotalSeconds >= 18)
+            {
+                PetState next = PostTaskStates[postTaskIndex++ % PostTaskStates.Length];
+                SetActivity(next);
+                stateSince = now;
+            }
         }
 
         // -------------------------------------------------------------- pointer
 
         private void OnPetMouseDown(object sender, MouseEventArgs e)
         {
-            SetActivity(PetState.Normal);
+            lastActive = DateTime.Now;
+            if (activity == PetState.Sleep)
+            {
+                postTaskIndex = 0;
+                SetActivity(PetState.Playing);
+                Say("呼噜……唔，醒啦！", 2000);
+            }
             if (e.Button != MouseButtons.Left) return;
             dragging = true;
             dragDistance = 0;
@@ -634,7 +709,15 @@ namespace WhalePet
 
         private void OnPetDoubleClick(object sender, MouseEventArgs e)
         {
-            SetActivity(PetState.Normal);
+            lastActive = DateTime.Now;
+            if (activity == PetState.Sleep)
+            {
+                SetActivity(PetState.Playing);
+            }
+            else
+            {
+                SetActivity(PetState.Normal);
+            }
         }
 
         /// <summary>Per-pixel hit testing: the window only reacts where she is opaque.</summary>
@@ -676,7 +759,10 @@ namespace WhalePet
             if (dragging || NearScreenEdge()) return 0;
             double phase = Environment.TickCount / 1000.0;
             if (activity == PetState.Playing) return -(int)Math.Round(12 * Math.Abs(Math.Sin(phase * 2.8)));
-            if (activity == PetState.Daydreaming) return (int)Math.Round(4 * Math.Sin(phase * 0.7));
+            if (activity == PetState.Working) return (int)Math.Round(1.5 * Math.Sin(phase * 4.0));
+            if (activity == PetState.Sleep) return (int)Math.Round(1.5 * Math.Sin(phase * 0.8));
+            if (activity == PetState.Thinking) return (int)Math.Round(2 * Math.Sin(phase * 1.2));
+            if (activity == PetState.Slacking) return (int)Math.Round(2 * Math.Sin(phase * 1.0));
             return (int)Math.Round(2 * Math.Sin(phase * 1.5));
         }
 
@@ -766,21 +852,7 @@ namespace WhalePet
 
         private void DrawActivity(Graphics graphics, int left, int top, int width, int height, double phase)
         {
-            if (activity == PetState.Normal) return;
-            float x = left + width - 6, y = top + height * 0.40f;
-            using (Pen ink = new Pen(Color.FromArgb(245, 90, 156, 223), 2.5f))
-            using (SolidBrush light = new SolidBrush(Color.FromArgb(235, 220, 243, 255)))
-            using (SolidBrush blue = new SolidBrush(Color.FromArgb(245, 99, 188, 235)))
-            using (Font font = new Font("Microsoft YaHei", 10f, FontStyle.Bold))
-            {
-                // A small caption stays readable even when speech is disabled.
-                SizeF label = graphics.MeasureString(StateLabel(activity), font);
-                float captionX = (ClientSize.Width - label.Width) / 2;
-                using (GraphicsPath pill = Rounded(new Rectangle((int)captionX - 10, 7, (int)label.Width + 20, 27), 10))
-                using (SolidBrush fill = new SolidBrush(Color.FromArgb(225, 30, 51, 83)))
-                    graphics.FillPath(fill, pill);
-                graphics.DrawString(StateLabel(activity), font, light, captionX, 10);
-            }
+            // 立绘上方不再显示任何状态胶囊与名称（根据需求1）
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)
@@ -809,10 +881,11 @@ namespace WhalePet
 
             float rotation = 0f;
             double phase = (DateTime.Now - stateSince).TotalSeconds;
-            if (activity == PetState.Thinking) rotation = (float)Math.Sin(phase) * 1.2f;
-            if (activity == PetState.Slacking) rotation = (float)(3 * Math.Sin(phase * 1.2));
-            if (activity == PetState.Bored) rotation = 0f;
-            if (activity == PetState.Playing) rotation = (float)(7 * Math.Sin(phase * 3));
+            if (activity == PetState.Thinking) rotation = (float)(Math.Sin(phase * 1.2) * 1.2f);
+            else if (activity == PetState.Slacking) rotation = (float)(1.5 * Math.Sin(phase * 1.0));
+            else if (activity == PetState.Playing) rotation = (float)(4.0 * Math.Sin(phase * 3.0));
+            else if (activity == PetState.Working) rotation = (float)(0.6 * Math.Sin(phase * 5.0));
+            else if (activity == PetState.Sleep) rotation = 0f;
             if (dragging || NearScreenEdge()) rotation = 0f;
 
             if (prefs.Shadow)
