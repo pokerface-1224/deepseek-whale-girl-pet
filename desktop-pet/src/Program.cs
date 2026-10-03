@@ -269,6 +269,14 @@ namespace WhalePet
 
             menu.Items.Add(new ToolStripSeparator());
 
+            ToolStripMenuItem openHarness = new ToolStripMenuItem("打开 DeepSeek Harness");
+            openHarness.Click += delegate
+            {
+                try { HarnessWindow.Open(); }
+                catch (Exception error) { Say("无法打开 Harness：" + error.Message, 5000); }
+            };
+            menu.Items.Add(openHarness);
+
             ToolStripMenuItem home = new ToolStripMenuItem("回到右下角");
             home.Click += delegate { MoveToDefaultCorner(); };
             menu.Items.Add(home);
@@ -761,6 +769,44 @@ namespace WhalePet
                 foreach (Pose pose in poses.Values) if (pose.Image != null) pose.Image.Dispose();
             }
             base.Dispose(disposing);
+        }
+    }
+
+    internal static class HarnessWindow
+    {
+        [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr handle, int command);
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr handle);
+        [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr handle);
+
+        internal static void Open()
+        {
+            string executable = Environment.GetEnvironmentVariable("DSH_WHALE_HARNESS_EXE");
+            foreach (System.Diagnostics.Process process in System.Diagnostics.Process.GetProcessesByName("DeepSeek Harness"))
+            using (process)
+            {
+                try
+                {
+                    IntPtr window = process.MainWindowHandle;
+                    if (window != IntPtr.Zero)
+                    {
+                        ShowWindowAsync(window, IsIconic(window) ? 9 : 5);
+                        if (SetForegroundWindow(window)) return;
+                    }
+                    if (string.IsNullOrEmpty(executable)) executable = process.MainModule.FileName;
+                }
+                catch (System.ComponentModel.Win32Exception) { }
+                catch (InvalidOperationException) { }
+            }
+            // A second launch is routed to DSH's existing instance, including
+            // its hidden tray window. It does not start a duplicate session.
+            if (string.IsNullOrEmpty(executable) || !File.Exists(executable))
+                throw new InvalidOperationException("请先启动 DSH，或通过 DSH 插件启动桌宠");
+            System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo(executable);
+            start.UseShellExecute = false;
+            start.CreateNoWindow = true;
+            start.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE");
+            start.EnvironmentVariables.Remove("NODE_OPTIONS");
+            using (System.Diagnostics.Process launched = System.Diagnostics.Process.Start(start)) { }
         }
     }
 
