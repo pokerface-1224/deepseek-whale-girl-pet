@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { setupSyncRelay } from '../sync-host.js';
+import { setupSyncRelay, getAccountSnapshot } from '../sync-host.js';
 import { PetManager } from '../native-host.js';
 
 // Test 1: Mock server registration
@@ -140,6 +140,36 @@ await accountRoute.handler({ method: 'GET' }, {
   end: (data) => { accountResBody = data; }
 });
 assert.match(accountResBody, /"authenticated":false/);
+
+// Test 6b: Account snapshot with async authenticated service
+const authedCtx = {
+  get(name) {
+    if (name === 'deepseekAccount') {
+      return {
+        async getState() {
+          return { status: 'credential-stored' };
+        },
+        async getProfile() {
+          return { status: 'ready', value: { id: 'u123', name: '测试小鲸鱼', contact: '13800000000' } };
+        },
+        async getBalance() {
+          return {
+            status: 'ready',
+            value: [{ currency: 'CNY', balance: '88.50' }],
+            bonusWallets: [{ currency: 'CNY', balance: '12.00' }]
+          };
+        }
+      };
+    }
+    return mockCtx.get(name);
+  }
+};
+const authedSnapshot = await getAccountSnapshot(authedCtx);
+assert.equal(authedSnapshot.authenticated, true);
+assert.equal(authedSnapshot.user.name, '测试小鲸鱼');
+assert.equal(authedSnapshot.balance.normal, '88.50');
+assert.equal(authedSnapshot.balance.bonus, '12.00');
+assert.equal(authedSnapshot.balance.total, '100.50');
 
 // Test 7: PetManager class structure test
 const pm = new PetManager({ platform: 'linux' });

@@ -140,11 +140,22 @@ export class PetManager {
             continue;
           }
           if (message === 'pet:account:login') {
-            try { this.triggerLogin?.(); } catch (err) { this.warn(`[pet-whale] login error: ${err.message}`); }
+            Promise.resolve(this.triggerLogin?.())
+              .then(res => {
+                if (res?.alreadyLoggedIn) {
+                  this.sendAccountInfo();
+                }
+              })
+              .catch(err => {
+                this.warn(`[pet-whale] login error: ${err.message}`);
+              });
             continue;
           }
           if (message === 'pet:account:logout') {
-            try { this.triggerLogout?.(); } catch (err) { this.warn(`[pet-whale] logout error: ${err.message}`); }
+            Promise.resolve(this.triggerLogout?.())
+              .catch(err => {
+                this.warn(`[pet-whale] logout error: ${err.message}`);
+              });
             continue;
           }
           if (message !== 'pet:mini-panel') continue;

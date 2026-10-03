@@ -17,29 +17,32 @@ export function setupSyncRelay(ctx, petManager) {
 
   // Listen to credentials or sign-out changes
   try {
-    ctx.on('credentials/record-updated', () => {
+    const onUpdate = () => {
       broadcastAccount().catch(() => {});
-    });
-    ctx.on('deepseek-account/signed-out', () => {
-      broadcastAccount().catch(() => {});
-    });
+    };
+    ctx.on('credentials/record-updated', onUpdate);
+    ctx.on('credentials/reference-updated', onUpdate);
+    ctx.on('deepseek-account/signed-out', onUpdate);
   } catch (e) {}
 
   // webServer can appear after this plugin starts. Cordis also re-enters
   // this scope when the service is replaced, disposing the old routes first.
+  let currentServer = null;
   const stop = ctx.inject(['webServer'], scope => {
+    currentServer = scope.get('webServer');
     const current = createSyncRelay(scope, petManager, broadcastAccount);
     relay = current;
     scope.effect(() => () => {
       current.dispose();
       if (relay === current) relay = null;
+      if (currentServer === scope.get('webServer')) currentServer = null;
     });
   });
 
   return {
     getLastSelection: () => relay?.getLastSelection() ?? null,
     getAccountSnapshot: () => getAccountSnapshot(ctx),
-    handleLogin: () => triggerLogin(ctx),
+    handleLogin: () => triggerLogin(ctx, () => currentServer || ctx.get('webServer'), broadcastAccount),
     handleLogout: () => triggerLogout(ctx),
     broadcastAccount,
     dispose: () => stop.dispose()
@@ -52,7 +55,7 @@ export async function getAccountSnapshot(ctx) {
     if (!account || typeof account.getState !== 'function') {
       return { authenticated: false, user: null, balance: null };
     }
-    const state = account.getState();
+    const state = await account.getState();
     const isAuthed = state && (state.status === 'credential-stored' || state.status === 'authenticated');
     if (!isAuthed) {
       return { authenticated: false, user: null, balance: null };
@@ -104,31 +107,76 @@ export async function getAccountSnapshot(ctx) {
       balance
     };
   } catch (err) {
+    console.warn('[pet-whale] getAccountSnapshot failed:', err);
     return { authenticated: false, user: null, balance: null, error: err.message };
   }
 }
 
-export async function triggerLogin(ctx) {
+export async function triggerLogin(ctx, getWebServer, broadcastAccount) {
   try {
     const account = ctx.get('deepseekAccount');
-    if (!account) throw new Error('Account service unavailable');
-    const server = ctx.get('webServer');
-    const callbackOrigin = server?.port ? `http://127.0.0.1:${server.port}` : 'http://127.0.0.1';
+    if (!account) {
+      console.warn('[pet-whale] triggerLogin: deepseekAccount service unavailable');
+      throw new Error('Account service unavailable');
+    }
+
+    if (typeof account.getState === 'function') {
+      const state = await account.getState();
+      if (state && (state.status === 'credential-stored' || state.status === 'authenticated')) {
+        console.log('[pet-whale] triggerLogin: already authenticated, broadcasting account snapshot');
+        if (typeof broadcastAccount === 'function') {
+          await broadcastAccount();
+        }
+        return { ok: true, alreadyLoggedIn: true };
+      }
+    }
+
+    const server = (typeof getWebServer === 'function' ? getWebServer() : null) || ctx.get('webServer');
+    let port = server?.port;
+    if (!port) {
+      const conn = ctx.get('connection');
+      if (conn?.origin) {
+        try { port = Number(new URL(conn.origin).port); } catch {}
+      }
+    }
+    if (!port) {
+      console.warn('[pet-whale] triggerLogin: webServer.port not ready');
+      throw new Error('Web server port unavailable');
+    }
+
+    const callbackOrigin = `http://127.0.0.1:${port}`;
     const clientMetadata = {
       version: '0.2.0-rc.2',
       locale: ctx.locale?.getSnapshot?.()?.active || 'zh',
       timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60
     };
 
+    const openUrl = async (targetUrl) => {
+      try {
+        const { spawn } = await import('node:child_process');
+        if (process.platform === 'win32') {
+          spawn('powershell.exe', ['-NoProfile', '-Command', `Start-Process -FilePath '${targetUrl.replace(/'/g, "''")}'`], {
+            detached: true,
+            stdio: 'ignore'
+          }).unref();
+        } else {
+          spawn('xdg-open', [targetUrl], { detached: true, stdio: 'ignore' }).unref();
+        }
+      } catch (e) {
+        console.warn('[pet-whale] openUrl failed:', e);
+      }
+    };
+
     if (typeof account.watch === 'function') {
-      const stream = account.watch(AbortSignal.timeout(10000));
+      const abortCtrl = new AbortController();
+      const stream = account.watch(abortCtrl.signal);
       (async () => {
         try {
           for await (const frame of stream) {
-            const authUrl = frame?.value?.attempt?.authorizeUrl || frame?.attempt?.authorizeUrl;
+            const authUrl = frame?.attempt?.authorizeUrl || frame?.value?.attempt?.authorizeUrl;
             if (authUrl) {
-              const { exec } = await import('node:child_process');
-              exec(`start "" "${authUrl}"`);
+              await openUrl(authUrl);
+              abortCtrl.abort();
               break;
             }
           }
@@ -137,11 +185,16 @@ export async function triggerLogin(ctx) {
     }
 
     if (typeof account.startSignIn === 'function') {
-      await account.startSignIn(clientMetadata, callbackOrigin, 'desktop');
+      const initResult = await account.startSignIn(clientMetadata, callbackOrigin, 'desktop');
+      const immediateAuthUrl = initResult?.attempt?.authorizeUrl;
+      if (immediateAuthUrl) {
+        await openUrl(immediateAuthUrl);
+      }
       return { ok: true };
     }
     throw new Error('startSignIn not supported');
   } catch (err) {
+    console.warn('[pet-whale] triggerLogin error:', err);
     return { ok: false, error: err.message };
   }
 }
@@ -161,6 +214,7 @@ export async function triggerLogout(ctx) {
     }
     throw new Error('signOut not supported');
   } catch (err) {
+    console.warn('[pet-whale] triggerLogout error:', err);
     return { ok: false, error: err.message };
   }
 }
