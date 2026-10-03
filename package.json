@@ -4,6 +4,7 @@
   "private": true,
   "description": "鲸鱼娘桌宠：随 Harness 启动，在 Windows 桌面显示可拖动、可互动的透明鲸鱼女仆窗口。",
   "type": "module",
+  "license": "MIT",
   "icon": "./icon.png",
   "exports": {
     ".": "./index.js",
@@ -12,6 +13,8 @@
     "./locale/*.json": "./locale/*.json"
   },
   "files": [
+    "LICENSE",
+    "README.md",
     "index.js",
     "client.js",
     "sync-host.js",
