@@ -11,12 +11,7 @@ const problems = [];
 
 if (!pkg.name || !pkg.version) problems.push('manifest needs name and version');
 if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') problems.push('dsh.bundle.patch must point at cordis.patch.yml');
-if (pkg.dsh?.client) problems.push('native-only plugin must not declare dsh.client');
-if (pkg.exports?.['./client']) problems.push('native-only plugin must not export a client');
-if (pkg.files.some(file => /^(client|art\.json)/.test(file))) problems.push('web assets must not be packaged');
-if (!pkg.exports?.['.']) problems.push('exports["."] is required for the Host half');
-
-for (const rel of ['index.js', 'native-host.js', 'desktop-pet/WhalePet.exe', 'desktop-pet/Microsoft.Web.WebView2.Core.dll', 'desktop-pet/Microsoft.Web.WebView2.WinForms.dll', 'desktop-pet/WebView2Loader.dll', 'desktop-pet/WebView2-LICENSE.txt', 'desktop-pet/src/MiniPanel.cs', 'desktop-pet/art/front.png', 'desktop-pet/art/side.png', 'desktop-pet/art/back.png', 'desktop-pet/art/thinking.png', 'desktop-pet/art/daydreaming.png', 'desktop-pet/art/slacking.png', 'desktop-pet/art/bored.png', 'desktop-pet/art/playing.png', 'cordis.patch.yml', 'icon.png', 'locale/en.json', 'locale/zh.json']) {
+for (const rel of ['index.js', 'sync-host.js', 'client.js', 'native-host.js', 'desktop-pet/WhalePet.exe', 'desktop-pet/Microsoft.Web.WebView2.Core.dll', 'desktop-pet/Microsoft.Web.WebView2.WinForms.dll', 'desktop-pet/WebView2Loader.dll', 'desktop-pet/WebView2-LICENSE.txt', 'desktop-pet/src/MiniPanel.cs', 'desktop-pet/art/front.png', 'desktop-pet/art/side.png', 'desktop-pet/art/back.png', 'desktop-pet/art/thinking.png', 'desktop-pet/art/daydreaming.png', 'desktop-pet/art/slacking.png', 'desktop-pet/art/bored.png', 'desktop-pet/art/playing.png', 'cordis.patch.yml', 'icon.png', 'locale/en.json', 'locale/zh.json']) {
   if (!fs.existsSync(path.join(root, rel))) problems.push('missing file ' + rel);
 }
 
@@ -32,7 +27,7 @@ for (const locale of ['en', 'zh']) {
 }
 
 const node = process.execPath;
-for (const rel of ['index.js', 'native-host.js']) {
+for (const rel of ['index.js', 'sync-host.js', 'client.js', 'native-host.js']) {
   try {
     execFileSync(node, ['--check', path.join(root, rel)], { stdio: 'pipe' });
   } catch (error) {

@@ -4,7 +4,7 @@ import { basename } from 'node:path';
 
 // An open stdin pipe leases the window to this plugin. Closing the pipe also
 // handles abrupt Host termination without leaving an orphan desktop pet.
-export function startDesktopPet({ platform = process.platform, launch = spawn, warn = console.warn, getPanelUrl } = {}) {
+export function startDesktopPet({ platform = process.platform, launch = spawn, warn = console.warn, getPanelUrl, getLastSelection } = {}) {
   if (platform !== 'win32') return () => {};
   let child;
   try {
@@ -32,6 +32,10 @@ export function startDesktopPet({ platform = process.platform, launch = spawn, w
           const url = new URL(getPanelUrl());
           if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') throw new Error('Invalid local endpoint');
           // Authentication stays in the private parent/child pipe, never logs or argv.
+          const selection = typeof getLastSelection === 'function' ? getLastSelection() : null;
+          if (selection?.sessionId) {
+            url.searchParams.set('initialSession', selection.sessionId);
+          }
           child.stdin.write(`panel:${url.href}\n`);
         } catch {
           child.stdin.write('panel-error:DSH connection unavailable\n');

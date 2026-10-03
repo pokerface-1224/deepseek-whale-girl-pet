@@ -76,8 +76,15 @@ namespace WhalePet
                     status.Text = e.IsSuccess ? "" : "连接失败，请确认 DSH 正在运行后重试";
                     status.Visible = !e.IsSuccess;
                 };
-                browser.CoreWebView2.ProcessFailed += delegate { status.Visible = true; status.Text = "页面进程已退出，请收起并重启桌宠"; };
                 initialized = true;
+                string initialSession = GetInitialSession(endpoint);
+                if (!string.IsNullOrEmpty(initialSession))
+                {
+                    string script = string.Format(
+                        "(function() {{ try {{ var k = 'dsh.sessions.current'; var s = localStorage.getItem(k); var o = s ? JSON.parse(s) : {{}}; o.sessionId = '{0}'; localStorage.setItem(k, JSON.stringify(o)); }} catch(e) {{}} }})();",
+                        initialSession.Replace("'", "\\'"));
+                    await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+                }
                 browser.CoreWebView2.Navigate(endpoint.AbsoluteUri);
             }
             catch (Exception error)
@@ -103,6 +110,34 @@ namespace WhalePet
             string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ".webview2");
             EnsureWritable(path);
             return path;
+        }
+
+        private static string GetInitialSession(Uri uri)
+        {
+            if (uri == null || string.IsNullOrEmpty(uri.Query)) return null;
+            string query = uri.Query.TrimStart('?');
+            foreach (string part in query.Split('&'))
+            {
+                int eq = part.IndexOf('=');
+                if (eq > 0)
+                {
+                    string key = part.Substring(0, eq);
+                    if (string.Equals(key, "initialSession", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Uri.UnescapeDataString(part.Substring(eq + 1));
+                    }
+                }
+            }
+            return null;
+        }
+
+        internal void SyncSession(string sessionId)
+        {
+            if (!initialized || IsDisposed || browser == null || browser.CoreWebView2 == null || string.IsNullOrEmpty(sessionId)) return;
+            string js = string.Format(
+                "try {{ window.postMessage({{ type: 'pet-whale-sync', sessionId: '{0}' }}, '*'); }} catch(e) {{}}",
+                sessionId.Replace("'", "\\'"));
+            browser.CoreWebView2.ExecuteScriptAsync(js);
         }
     }
 }

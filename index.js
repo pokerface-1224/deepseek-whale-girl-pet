@@ -1,16 +1,27 @@
-/** Host-only plugin: manages the native Windows desktop pet. */
+/** Host plugin: manages native Windows desktop pet and UI session synchronization. */
 import { startDesktopPet } from './native-host.js';
+import { setupSyncRelay } from './sync-host.js';
 
 export function apply(ctx) {
   // Cordis disposes this effect on plugin disable/reload.
   // Native startup failure must never prevent Harness from booting.
   try {
-    ctx.effect(() => startDesktopPet({ getPanelUrl() {
-      const server = ctx.get('webServer');
-      const connection = ctx.get('connection');
-      if (!server?.port || !connection?.authenticatedUrl) throw new Error('DSH web connection is not ready');
-      return connection.authenticatedUrl(`http://127.0.0.1:${server.port}`);
-    } }));
+    const syncRelay = setupSyncRelay(ctx);
+
+    const stopPet = startDesktopPet({
+      getPanelUrl() {
+        const server = ctx.get('webServer');
+        const connection = ctx.get('connection');
+        if (!server?.port || !connection?.authenticatedUrl) throw new Error('DSH web connection is not ready');
+        return connection.authenticatedUrl(`http://127.0.0.1:${server.port}`);
+      },
+      getLastSelection: syncRelay.getLastSelection
+    });
+
+    ctx.effect(() => () => {
+      stopPet();
+      syncRelay.dispose();
+    });
   } catch (error) {
     console.warn('[pet-whale] desktop lifecycle unavailable:', error);
   }
