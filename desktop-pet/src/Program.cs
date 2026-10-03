@@ -541,13 +541,33 @@ namespace WhalePet
                 top + (int)Math.Ceiling(source.Bottom * height / (double)current.Image.Height));
         }
 
-        internal Rectangle ScreenSpriteBounds
+        private Rectangle BaselineSpriteBounds()
+        {
+            Pose basePose = poses.ContainsKey("front") ? poses["front"] : current;
+            if (basePose == null || basePose.Image == null) return VisibleSpriteBounds();
+            float scale = Math.Min(prefs.Size / (float)basePose.Image.Height, (ClientSize.Width - 64f) / basePose.Image.Width);
+            int width = (int)Math.Round(basePose.Image.Width * scale);
+            int height = (int)Math.Round(basePose.Image.Height * scale);
+            int left = (ClientSize.Width - width) / 2, top = ClientSize.Height - height - 20;
+            Rectangle source = basePose.VisibleBounds;
+            return Rectangle.FromLTRB(left + (int)Math.Floor(source.Left * width / (double)basePose.Image.Width),
+                top + (int)Math.Floor(source.Top * height / (double)basePose.Image.Height),
+                left + (int)Math.Ceiling(source.Right * width / (double)basePose.Image.Width),
+                top + (int)Math.Ceiling(source.Bottom * height / (double)basePose.Image.Height));
+        }
+
+        internal Rectangle StableAnchorBounds
         {
             get
             {
-                Rectangle v = VisibleSpriteBounds();
+                Rectangle v = BaselineSpriteBounds();
                 return new Rectangle(Location.X + v.Left, Location.Y + v.Top, v.Width, v.Height);
             }
+        }
+
+        internal Rectangle ScreenSpriteBounds
+        {
+            get { return StableAnchorBounds; }
         }
 
         private void RememberPosition()

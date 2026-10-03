@@ -163,7 +163,7 @@ namespace WhalePet
 
             int gap = 8;
             PetForm pet = target as PetForm;
-            Rectangle visual = pet != null ? pet.ScreenSpriteBounds : target.Bounds;
+            Rectangle visual = pet != null ? pet.StableAnchorBounds : target.Bounds;
 
             int targetX;
             // Prefer left side of pet if space allows
@@ -183,7 +183,10 @@ namespace WhalePet
 
             int targetY = visual.Bottom - Height;
             targetY = Math.Max(area.Top + 8, Math.Min(area.Bottom - Height - 8, targetY));
-            Location = new Point(targetX, targetY);
+            if (Location.X != targetX || Location.Y != targetY)
+            {
+                Location = new Point(targetX, targetY);
+            }
         }
 
         internal void Reveal(Form anchor = null)
