@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-pet-whale",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "private": true,
   "description": "鲸鱼娘桌宠：随 Harness 启动，在 Windows 桌面显示可拖动、可互动的透明鲸鱼女仆窗口。",
   "type": "module",
