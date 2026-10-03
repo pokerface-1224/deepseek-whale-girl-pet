@@ -13,6 +13,6 @@ if (-not $csc) { throw '.NET Framework v4 compiler was not found.' }
   /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
   "/reference:$(Join-Path $root 'Microsoft.Web.WebView2.Core.dll')" `
   "/reference:$(Join-Path $root 'Microsoft.Web.WebView2.WinForms.dll')" `
-  $source (Join-Path $root 'src\WhaleMenuRenderer.cs') (Join-Path $root 'src\MiniPanel.cs')
+  $source (Join-Path $root 'src\WhaleMenuRenderer.cs') (Join-Path $root 'src\MiniPanel.cs') (Join-Path $root 'src\Feeding.cs')
 if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
 Write-Host "Built $output"

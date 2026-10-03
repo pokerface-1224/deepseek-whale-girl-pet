@@ -16,6 +16,9 @@ for (const rel of ['LICENSE', 'README.md', 'index.js', 'sync-host.js', 'client.j
 }
 
 const iconSize = fs.statSync(path.join(root, 'icon.png')).size;
+for (const rel of ['desktop-pet/src/Feeding.cs', 'desktop-pet/art/eating.png']) {
+  if (!fs.existsSync(path.join(root, rel))) problems.push('missing file ' + rel);
+}
 if (iconSize > 256 * 1024) problems.push('icon exceeds 256 KiB: ' + iconSize);
 
 const patch = fs.readFileSync(path.join(root, 'cordis.patch.yml'), 'utf8');

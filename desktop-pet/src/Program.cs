@@ -85,6 +85,8 @@ namespace WhalePet
         public bool ClickThrough = true;
         public int X = int.MinValue;
         public int Y = int.MinValue;
+        public int Satiety = 60;
+        public int SatietyElapsedMs;
 
         private static string FilePath
         {
@@ -113,6 +115,8 @@ namespace WhalePet
                         case "clickthrough": prefs.ClickThrough = value == "1"; break;
                         case "x": prefs.X = ParseInt(value, prefs.X); break;
                         case "y": prefs.Y = ParseInt(value, prefs.Y); break;
+                        case "satiety": prefs.Satiety = Math.Max(0, Math.Min(100, ParseInt(value, 60))); break;
+                        case "satietyElapsedMs": prefs.SatietyElapsedMs = Math.Max(0, Math.Min(299999, ParseInt(value, 0))); break;
                     }
                 }
             }
@@ -136,7 +140,9 @@ namespace WhalePet
                     "topmost=" + (TopMost ? "1" : "0"),
                     "clickthrough=" + (ClickThrough ? "1" : "0"),
                     "x=" + X.ToString(CultureInfo.InvariantCulture),
-                    "y=" + Y.ToString(CultureInfo.InvariantCulture)
+                    "y=" + Y.ToString(CultureInfo.InvariantCulture),
+                    "satiety=" + Satiety.ToString(CultureInfo.InvariantCulture),
+                    "satietyElapsedMs=" + SatietyElapsedMs.ToString(CultureInfo.InvariantCulture)
                 };
                 File.WriteAllLines(FilePath, lines, Encoding.UTF8);
             }
@@ -229,6 +235,18 @@ namespace WhalePet
         private PetState activity = PetState.Normal;
         private DateTime stateSince = DateTime.Now;
         private Bitmap frame;
+        private Bitmap spriteMask;
+        private readonly SatietyMeter satiety;
+        private ToolStripMenuItem satietyMenuItem;
+        private long lastSatietySave;
+        private bool fileHover;
+        private int hoverBob;
+        private float hoverRotation;
+        private bool feedingBusy;
+        private bool closeAfterFeeding;
+        private DateTime eatingUntil = DateTime.MinValue;
+        private DateTime eatingSince = DateTime.MinValue;
+        private bool eatingVisible;
         private MiniPanel miniPanel;
         private NotifyIcon trayIcon;
         internal bool HasHostPipe;
@@ -253,6 +271,8 @@ namespace WhalePet
         {
             artDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "art");
             prefs = Prefs.Load();
+            satiety = new SatietyMeter(prefs.Satiety, prefs.SatietyElapsedMs, AwakeClock.Milliseconds);
+            lastSatietySave = AwakeClock.Milliseconds;
 
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -284,9 +304,18 @@ namespace WhalePet
             MouseMove += OnPetMouseMove;
             MouseUp += OnPetMouseUp;
             MouseDoubleClick += OnPetDoubleClick;
+            AllowDrop = true;
+            DragEnter += OnFileDrag;
+            DragOver += OnFileDrag;
+            DragLeave += delegate { EndFileHover(); };
+            DragDrop += OnFileDrop;
             KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Escape) Close(); };
 
             ContextMenuStrip menu = new ContextMenuStrip();
+            satietyMenuItem = new ToolStripMenuItem { Enabled = false };
+            UpdateSatiety(false);
+            menu.Items.Add(satietyMenuItem);
+            menu.Items.Add(new ToolStripSeparator());
             ToolStripMenuItem openHarness = new ToolStripMenuItem("打开 dsh 窗口");
             openHarness.Click += delegate
             {
@@ -379,6 +408,7 @@ namespace WhalePet
             WhaleMenuRenderer.Style(menu);
             menu.Opening += delegate
             {
+                UpdateSatiety(false);
                 string[] views = { "front", "side", "back" };
                 for (int i = 0; i < views.Length; i++)
                     ((ToolStripMenuItem)view.DropDownItems[i]).Checked = prefs.Pose == views[i];
@@ -645,7 +675,7 @@ namespace WhalePet
 
         private void LoadPoses()
         {
-            foreach (string name in new string[] { "working", "playing", "slacking", "thinking", "sleep" })
+            foreach (string name in new string[] { "working", "playing", "slacking", "thinking", "sleep", "eating" })
             {
                 string path = Path.Combine(artDirectory, name + ".png");
                 if (File.Exists(path))
@@ -755,6 +785,7 @@ namespace WhalePet
 
         private void RememberPosition()
         {
+            UpdateSatiety(false);
             prefs.X = Location.X;
             prefs.Y = Location.Y;
             prefs.Save();
@@ -762,6 +793,7 @@ namespace WhalePet
 
         private void SaveAndInvalidate()
         {
+            UpdateSatiety(false);
             prefs.Save();
             Invalidate();
         }
@@ -772,7 +804,7 @@ namespace WhalePet
         {
             if (!poses.ContainsKey(name)) return;
             prefs.Pose = name;
-            current = poses[name];
+            current = DateTime.Now < eatingUntil && poses.ContainsKey("eating") ? poses["eating"] : poses[name];
             ApplySize();
             Touch();
             Say(name == "front" ? "正面登场！" : name == "side" ? "从这边看也好看～" : "看我的鲸鱼尾巴！", 2000);
@@ -810,17 +842,25 @@ namespace WhalePet
         private void SetActivity(PetState value)
         {
             activity = value;
-            string key = value.ToString().ToLowerInvariant();
-            if (value != PetState.Normal && poses.ContainsKey(key)) current = poses[key];
-            else current = poses.ContainsKey(prefs.Pose) ? poses[prefs.Pose] : poses["front"];
+            SelectDisplayPose();
             ApplySize();
             RenderFrame();
             if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible) miniPanel.UpdatePosition(this);
         }
 
+        private void SelectDisplayPose()
+        {
+            string key = activity.ToString().ToLowerInvariant();
+            eatingVisible = DateTime.Now < eatingUntil && poses.ContainsKey("eating");
+            if (eatingVisible) current = poses["eating"];
+            else if (activity != PetState.Normal && poses.ContainsKey(key)) current = poses[key];
+            else current = poses.ContainsKey(prefs.Pose) ? poses[prefs.Pose] : poses["front"];
+        }
+
         private void AdvanceActivity(DateTime now)
         {
-            if (dragging || (ContextMenuStrip != null && ContextMenuStrip.Visible)) return;
+            UpdateSatiety(true);
+            if (dragging || fileHover || (ContextMenuStrip != null && ContextMenuStrip.Visible)) return;
 
             // 1. DSH 任务执行中：固定为工作状态（侧后方视角，奋笔疾书）
             if (isTaskRunning)
@@ -857,6 +897,117 @@ namespace WhalePet
         }
 
         // -------------------------------------------------------------- pointer
+
+        private void UpdateSatiety(bool persist)
+        {
+            if (satiety == null) return;
+            long now = AwakeClock.Milliseconds;
+            int before = satiety.Value;
+            satiety.Advance(now);
+            prefs.Satiety = satiety.Value;
+            prefs.SatietyElapsedMs = (int)satiety.ElapsedMs;
+            if (satietyMenuItem != null) satietyMenuItem.Text = "饱腹值：" + satiety.Value + "/100";
+            if (persist && (before != satiety.Value || now - lastSatietySave >= 60000))
+            {
+                prefs.Save();
+                lastSatietySave = now;
+            }
+        }
+
+        private void EndFileHover()
+        {
+            fileHover = false;
+            RenderFrame();
+        }
+
+        private string[] GetDropPaths(DragEventArgs e)
+        {
+            try
+            {
+                return e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop, false)
+                    ? FileFeeding.Normalize(e.Data.GetData(DataFormats.FileDrop, false) as string[]) : new string[0];
+            }
+            catch { return new string[0]; }
+        }
+
+        private void OnFileDrag(object sender, DragEventArgs e)
+        {
+            e.Effect = DragDropEffects.None;
+            if (feedingBusy || dragging) return;
+            string[] paths = GetDropPaths(e);
+            if (paths.Length == 0) return;
+            if (!fileHover)
+            {
+                hoverBob = BobOffset();
+                hoverRotation = SpriteRotation();
+                fileHover = true;
+                RenderFrame();
+            }
+            bool hasFile = false;
+            foreach (string path in paths) if (FileFeeding.IsRegularLocalFile(path)) { hasFile = true; break; }
+            if (hasFile && IsSpriteAt(PointToClient(new Point(e.X, e.Y)))
+                && (e.AllowedEffect & DragDropEffects.Move) != 0)
+                e.Effect = DragDropEffects.Move;
+        }
+
+        private bool IsSpriteAt(Point point)
+        {
+            return spriteMask != null && point.X >= 0 && point.Y >= 0
+                && point.X < spriteMask.Width && point.Y < spriteMask.Height
+                && spriteMask.GetPixel(point.X, point.Y).A > 24;
+        }
+
+        private void OnFileDrop(object sender, DragEventArgs e)
+        {
+            e.Effect = DragDropEffects.None;
+            string[] paths = GetDropPaths(e);
+            bool accept = !feedingBusy && !dragging && paths.Length > 0
+                && (e.AllowedEffect & DragDropEffects.Move) != 0
+                && IsSpriteAt(PointToClient(new Point(e.X, e.Y)));
+            EndFileHover();
+            if (!accept) return;
+            feedingBusy = true;
+            // Shell work needs its own STA, leaving the UI and host pipe responsive.
+            System.Threading.Thread worker = new System.Threading.Thread(delegate()
+            {
+                FeedingResult result = FileFeeding.Process(paths, RecycleBin.Recycle);
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                        BeginInvoke((Action)delegate { CompleteFeeding(result); });
+                }
+                catch (InvalidOperationException) { }
+            });
+            worker.IsBackground = true;
+            worker.SetApartmentState(System.Threading.ApartmentState.STA);
+            worker.Start();
+            // Files are recycled here, not moved by the drag source. Returning None on Drop
+            // prevents a source from trying to remove them a second time after our async work.
+        }
+
+        private void CompleteFeeding(FeedingResult result)
+        {
+            feedingBusy = false;
+            UpdateSatiety(false);
+            if (result.Successful > 0)
+            {
+                int gained = satiety.Feed(result.Successful);
+                UpdateSatiety(false);
+                prefs.Save();
+                Touch();
+                eatingSince = DateTime.Now;
+                eatingUntil = eatingSince.AddSeconds(3);
+                SelectDisplayPose();
+                RenderFrame();
+                Say("吃掉 " + result.Successful + " 个文件～\n饱腹 +" + gained + "（" + satiety.Value + "/100）"
+                    + (result.Failed > 0 ? "\n" + result.Failed + " 个未回收" : ""), 5000);
+            }
+            else Say("没吃到～文件未回收（" + result.Failed + " 个）", 5000);
+            foreach (string error in result.Errors) Console.Error.WriteLine("[pet] feeding: " + error);
+            if (result.Failed > 0 && (!prefs.Speech || result.Successful == 0) && trayIcon != null)
+                trayIcon.ShowBalloonTip(5000, "文件投喂", result.Failed + " 个文件未回收。仅接受可回收的本地文件。", ToolTipIcon.Warning);
+            if (closeAfterFeeding) Close();
+        }
 
         private void OnPetMouseDown(object sender, MouseEventArgs e)
         {
@@ -950,7 +1101,9 @@ namespace WhalePet
 
         private int BobOffset()
         {
+            if (fileHover) return hoverBob;
             if (dragging || NearScreenEdge()) return 0;
+            if (eatingVisible) return -(int)Math.Round(5 * Math.Abs(Math.Sin((DateTime.Now - eatingSince).TotalSeconds * 5)));
             double phase = Environment.TickCount / 1000.0;
             if (activity == PetState.Playing) return -(int)Math.Round(12 * Math.Abs(Math.Sin(phase * 2.8)));
             if (activity == PetState.Working) return (int)Math.Round(1.5 * Math.Sin(phase * 4.0));
@@ -970,6 +1123,18 @@ namespace WhalePet
         }
 
         // --------------------------------------------------------------- render
+
+        private float SpriteRotation()
+        {
+            if (fileHover) return hoverRotation;
+            if (dragging || eatingVisible || NearScreenEdge()) return 0f;
+            double phase = (DateTime.Now - stateSince).TotalSeconds;
+            if (activity == PetState.Thinking) return (float)(Math.Sin(phase * 1.2) * 1.2);
+            if (activity == PetState.Slacking) return (float)(1.5 * Math.Sin(phase));
+            if (activity == PetState.Playing) return (float)(4 * Math.Sin(phase * 3));
+            if (activity == PetState.Working) return (float)(0.6 * Math.Sin(phase * 5));
+            return 0f;
+        }
 
         protected override CreateParams CreateParams
         {
@@ -1017,6 +1182,7 @@ namespace WhalePet
         private void RenderFrame()
         {
             if (!IsHandleCreated || IsDisposed || current == null) return;
+            if (eatingVisible && DateTime.Now >= eatingUntil && !fileHover) SelectDisplayPose();
             Bitmap next = CreateFrame();
             IntPtr screen = GetDC(IntPtr.Zero);
             IntPtr memory = CreateCompatibleDC(screen);
@@ -1073,14 +1239,8 @@ namespace WhalePet
             int bob = BobOffset();
             int top = ClientSize.Height - height - 20 + bob;
 
-            float rotation = 0f;
+            float rotation = SpriteRotation();
             double phase = (DateTime.Now - stateSince).TotalSeconds;
-            if (activity == PetState.Thinking) rotation = (float)(Math.Sin(phase * 1.2) * 1.2f);
-            else if (activity == PetState.Slacking) rotation = (float)(1.5 * Math.Sin(phase * 1.0));
-            else if (activity == PetState.Playing) rotation = (float)(4.0 * Math.Sin(phase * 3.0));
-            else if (activity == PetState.Working) rotation = (float)(0.6 * Math.Sin(phase * 5.0));
-            else if (activity == PetState.Sleep) rotation = 0f;
-            if (dragging || NearScreenEdge()) rotation = 0f;
 
             if (prefs.Shadow)
             {
@@ -1111,6 +1271,39 @@ namespace WhalePet
             }
             graphics.DrawImage(current.Image, new Rectangle(left, drawTop, width, height));
             graphics.Restore(state);
+
+            if (spriteMask == null || spriteMask.Size != ClientSize)
+            {
+                if (spriteMask != null) spriteMask.Dispose();
+                spriteMask = new Bitmap(ClientSize.Width, ClientSize.Height, PixelFormat.Format32bppPArgb);
+            }
+            using (Graphics mask = Graphics.FromImage(spriteMask))
+            {
+                mask.Clear(Color.Transparent);
+                mask.InterpolationMode = graphics.InterpolationMode;
+                mask.PixelOffsetMode = graphics.PixelOffsetMode;
+                if (Math.Abs(rotation) > 0.01f)
+                {
+                    mask.TranslateTransform(left + width / 2f, drawTop + height);
+                    mask.RotateTransform(rotation);
+                    mask.TranslateTransform(-(left + width / 2f), -(drawTop + height));
+                }
+                mask.DrawImage(current.Image, new Rectangle(left, drawTop, width, height));
+            }
+
+            if (eatingVisible)
+            {
+                double elapsed = (DateTime.Now - eatingSince).TotalSeconds;
+                using (Font heartFont = new Font("Segoe UI Symbol", 13f))
+                for (int i = 0; i < 5; i++)
+                {
+                    double progress = (elapsed * 0.65 + i * 0.2) % 1.0;
+                    float x = left + width * (0.2f + i * 0.15f);
+                    float y = top + height * 0.48f - (float)progress * 50;
+                    using (Brush brush = new SolidBrush(Color.FromArgb((int)(200 * (1 - progress)), 249, 123, 160)))
+                        graphics.DrawString("♥", heartFont, brush, x, y);
+                }
+            }
 
             DrawActivity(graphics, left, drawTop, width, height, phase);
 
@@ -1181,6 +1374,13 @@ namespace WhalePet
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (feedingBusy)
+            {
+                closeAfterFeeding = true;
+                e.Cancel = true;
+                Say("正在回收文件，完成后退出～", 3000);
+                return;
+            }
             RememberPosition();
             base.OnFormClosing(e);
         }
@@ -1191,6 +1391,7 @@ namespace WhalePet
             {
                 if (animation != null) animation.Dispose();
                 if (frame != null) frame.Dispose();
+                if (spriteMask != null) spriteMask.Dispose();
                 if (idle != null) idle.Dispose();
                 if (miniPanel != null) miniPanel.Dispose();
                 foreach (Pose pose in poses.Values) if (pose.Image != null) pose.Image.Dispose();
