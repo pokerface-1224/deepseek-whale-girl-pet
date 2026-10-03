@@ -315,8 +315,6 @@ namespace WhalePet
         public AnimeTitleBar(string title)
         {
             titleText = title;
-            Dock = DockStyle.Top;
-            Height = 44;
             BackColor = HeaderBg;
 
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
@@ -333,6 +331,10 @@ namespace WhalePet
             Controls.Add(btnReload);
             Controls.Add(btnOpen);
             Controls.Add(btnClose);
+
+            Dock = DockStyle.Top;
+            Height = 44;
+            LayoutButtons();
         }
 
         public void SetConnected(bool connected)
@@ -341,15 +343,21 @@ namespace WhalePet
             Invalidate();
         }
 
-        protected override void OnResize(EventArgs e)
+        private void LayoutButtons()
         {
-            base.OnResize(e);
+            if (btnClose == null || btnOpen == null || btnReload == null) return;
             int right = Width - 8;
             btnClose.Location = new Point(right - btnClose.Width, (Height - btnClose.Height) / 2);
             right -= btnClose.Width + 5;
             btnOpen.Location = new Point(right - btnOpen.Width, (Height - btnOpen.Height) / 2);
             right -= btnOpen.Width + 5;
             btnReload.Location = new Point(right - btnReload.Width, (Height - btnReload.Height) / 2);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            LayoutButtons();
         }
 
         protected override void OnPaint(PaintEventArgs e)
