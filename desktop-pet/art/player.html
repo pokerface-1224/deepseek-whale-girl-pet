@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Whale Pet Transparent Viewport</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent !important;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    #stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .pet-video {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: 90%;
+      max-height: 82%;
+      object-fit: contain;
+      pointer-events: auto;
+      transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      will-change: opacity;
+    }
+    .video-active {
+      opacity: 1;
+      z-index: 2;
+    }
+    .video-inactive {
+      opacity: 0;
+      z-index: 1;
+    }
+    /* 拟真软投影 (与原生保持一致) */
+    #pet-shadow {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 55%;
+      height: 10px;
+      background: radial-gradient(ellipse at center, rgba(8, 14, 30, 0.35) 0%, rgba(8, 14, 30, 0) 72%);
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+    }
+    /* 萌系气泡台词 */
+    #speech-bubble {
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      transform: translateX(-50%) translateY(4px) scale(0.95);
+      max-width: 88%;
+      padding: 7px 14px;
+      background: rgba(21, 26, 40, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      color: #eff3fa;
+      font-size: 12.5px;
+      line-height: 1.45;
+      text-align: center;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      z-index: 10;
+      transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28), visibility 0.2s;
+    }
+    #speech-bubble.bubble-show {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(0) scale(1);
+    }
+    /* 小尾巴 */
+    #speech-bubble::after {
+      content: "";
+      position: absolute;
+      bottom: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-width: 6px 6px 0;
+      border-style: solid;
+      border-color: rgba(21, 26, 40, 0.94) transparent;
+      display: block;
+      width: 0;
+    }
+    /* 进食爱心动画 */
+    .heart {
+      position: absolute;
+      color: #f97ba0;
+      font-size: 16px;
+      pointer-events: none;
+      animation: floatUp 1.4s ease-out forwards;
+      z-index: 8;
+    }
+    @keyframes floatUp {
+      0% { transform: translateY(0) scale(0.7); opacity: 1; }
+      100% { transform: translateY(-46px) scale(1.2); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="speech-bubble"></div>
+    <div id="pet-shadow"></div>
+    <video id="videoA" class="pet-video video-active" autoplay loop muted playsinline></video>
+    <video id="videoB" class="pet-video video-inactive" autoplay loop muted playsinline></video>
+  </div>
+
+  <script>
+    const videoA = document.getElementById('videoA');
+    const videoB = document.getElementById('videoB');
+    const bubble = document.getElementById('speech-bubble');
+    const stage = document.getElementById('stage');
+    let activeVideo = videoA;
+    let nextVideo = videoB;
+    let bubbleTimer = null;
+
+    // 平滑视频切换 (双缓冲 Cross-fade)
+    function playVideo(url, loop = true) {
+      if (!url) return;
+      if (activeVideo.src.endsWith(url) && !activeVideo.paused) return;
+
+      nextVideo.src = url;
+      nextVideo.loop = loop;
+      nextVideo.play().then(() => {
+        nextVideo.classList.remove('video-inactive');
+        nextVideo.classList.add('video-active');
+        activeVideo.classList.remove('video-active');
+        activeVideo.classList.add('video-inactive');
+
+        // 交换引用
+        const temp = activeVideo;
+        activeVideo = nextVideo;
+        nextVideo = temp;
+      }).catch(err => {
+        console.warn('Video play error:', err);
+      });
+    }
+
+    // 显示气泡台词
+    function showBubble(text, duration = 3000) {
+      if (!text) {
+        bubble.classList.remove('bubble-show');
+        return;
+      }
+      bubble.textContent = text;
+      bubble.classList.add('bubble-show');
+      if (bubbleTimer) clearTimeout(bubbleTimer);
+      bubbleTimer = setTimeout(() => {
+        bubble.classList.remove('bubble-show');
+      }, duration);
+    }
+
+    // 进食爱心动效
+    function spawnHearts() {
+      for (let i = 0; i < 4; i++) {
+        setTimeout(() => {
+          const heart = document.createElement('div');
+          heart.className = 'heart';
+          heart.textContent = '♥';
+          heart.style.left = (35 + Math.random() * 30) + '%';
+          heart.style.bottom = (45 + Math.random() * 15) + '%';
+          stage.appendChild(heart);
+          setTimeout(() => heart.remove(), 1500);
+        }, i * 260);
+      }
+    }
+
+    // 与 C# WebView2 通信
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.addEventListener('message', event => {
+        const data = event.data;
+        if (!data) return;
+        if (data.type === 'play') {
+          playVideo(data.src, data.loop !== false);
+        } else if (data.type === 'bubble') {
+          showBubble(data.text, data.duration || 3000);
+        } else if (data.type === 'hearts') {
+          spawnHearts();
+        } else if (data.type === 'shadow') {
+          document.getElementById('pet-shadow').style.display = data.visible ? 'block' : 'none';
+        }
+      });
+    }
+
+    // 右键与点击交互转发
+    window.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({ type: 'contextmenu', x: e.screenX, y: e.screenY });
+      }
+    });
+
+    let dragStart = null;
+    window.addEventListener('mousedown', e => {
+      if (e.button === 0) {
+        dragStart = { x: e.screenX, y: e.screenY };
+        if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.postMessage({ type: 'mousedown', x: e.screenX, y: e.screenY });
+        }
+      }
+    });
+
+    window.addEventListener('dblclick', e => {
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({ type: 'dblclick' });
+      }
+    });
+  </script>
+</body>
+</html>

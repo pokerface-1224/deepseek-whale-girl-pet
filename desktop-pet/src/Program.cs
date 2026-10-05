@@ -18,6 +18,8 @@ using System.Text;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 namespace WhalePet
 {
@@ -88,6 +90,7 @@ namespace WhalePet
         public int Y = int.MinValue;
         public int Satiety = 60;
         public int SatietyElapsedMs;
+        public bool VideoMode = true;
 
         private static string FilePath
         {
@@ -118,6 +121,7 @@ namespace WhalePet
                         case "y": prefs.Y = ParseInt(value, prefs.Y); break;
                         case "satiety": prefs.Satiety = Math.Max(0, Math.Min(100, ParseInt(value, 60))); break;
                         case "satietyElapsedMs": prefs.SatietyElapsedMs = Math.Max(0, Math.Min(299999, ParseInt(value, 0))); break;
+                        case "videomode": prefs.VideoMode = value == "1"; break;
                     }
                 }
             }
@@ -143,7 +147,8 @@ namespace WhalePet
                     "x=" + X.ToString(CultureInfo.InvariantCulture),
                     "y=" + Y.ToString(CultureInfo.InvariantCulture),
                     "satiety=" + Satiety.ToString(CultureInfo.InvariantCulture),
-                    "satietyElapsedMs=" + SatietyElapsedMs.ToString(CultureInfo.InvariantCulture)
+                    "satietyElapsedMs=" + SatietyElapsedMs.ToString(CultureInfo.InvariantCulture),
+                    "videomode=" + (VideoMode ? "1" : "0")
                 };
                 File.WriteAllLines(FilePath, lines, Encoding.UTF8);
             }
@@ -251,8 +256,37 @@ namespace WhalePet
         private DateTime eatingSince = DateTime.MinValue;
         private bool eatingVisible;
         private MiniPanel miniPanel;
+        private WebPetOverlay videoOverlay;
         private NotifyIcon trayIcon;
         internal bool HasHostPipe;
+
+        private bool IsVideoActive
+        {
+            get { return prefs != null && prefs.VideoMode && videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible; }
+        }
+
+        private void EnsureVideoOverlay()
+        {
+            if (!IsHandleCreated || IsDisposed) return;
+            if (string.IsNullOrEmpty(artDirectory)) return;
+            string webmDir = Path.Combine(artDirectory, "webm");
+            if (!Directory.Exists(webmDir) || !File.Exists(Path.Combine(webmDir, "front.webm"))) return;
+            if (videoOverlay == null || videoOverlay.IsDisposed)
+            {
+                try
+                {
+                    videoOverlay = new WebPetOverlay(this);
+                    videoOverlay.Show(this);
+                    videoOverlay.SetShadow(prefs.Shadow);
+                    string key = (activity == PetState.Normal) ? prefs.Pose : activity.ToString().ToLowerInvariant();
+                    videoOverlay.PlayState(key, true);
+                }
+                catch (Exception error)
+                {
+                    Console.Error.WriteLine("[pet] cannot initialize video overlay: " + error.Message);
+                }
+            }
+        }
 
         private bool isTaskRunning = false;
         private DateTime lastTaskFinished = DateTime.MinValue;
@@ -291,6 +325,11 @@ namespace WhalePet
             current = poses.ContainsKey(prefs.Pose) ? poses[prefs.Pose] : poses["front"];
             ApplySize();
             RestorePosition();
+
+            Shown += delegate
+            {
+                if (prefs.VideoMode) EnsureVideoOverlay();
+            };
 
             animation = new Timer { Interval = 33 };
             animation.Tick += delegate { RenderFrame(); };
@@ -366,6 +405,41 @@ namespace WhalePet
             }
             menu.Items.Add(size);
 
+            ToolStripMenuItem renderMode = new ToolStripMenuItem("形象渲染");
+            ToolStripMenuItem modeVideo = new ToolStripMenuItem("动态 WebM 视频") { CheckOnClick = true, Checked = prefs.VideoMode };
+            ToolStripMenuItem modeStatic = new ToolStripMenuItem("经典静态立绘") { CheckOnClick = true, Checked = !prefs.VideoMode };
+
+            modeVideo.Click += delegate
+            {
+                if (prefs.VideoMode) return;
+                prefs.VideoMode = true;
+                modeVideo.Checked = true;
+                modeStatic.Checked = false;
+                EnsureVideoOverlay();
+                if (videoOverlay != null)
+                {
+                    videoOverlay.Visible = true;
+                    videoOverlay.SyncBounds();
+                    string key = (activity == PetState.Normal) ? prefs.Pose : activity.ToString().ToLowerInvariant();
+                    videoOverlay.PlayState(key, true);
+                }
+                SaveAndInvalidate();
+            };
+
+            modeStatic.Click += delegate
+            {
+                if (!prefs.VideoMode) return;
+                prefs.VideoMode = false;
+                modeVideo.Checked = false;
+                modeStatic.Checked = true;
+                if (videoOverlay != null) videoOverlay.Visible = false;
+                SaveAndInvalidate();
+            };
+
+            renderMode.DropDownItems.Add(modeVideo);
+            renderMode.DropDownItems.Add(modeStatic);
+            menu.Items.Add(renderMode);
+
             menu.Items.Add(new ToolStripSeparator());
 
             ToolStripMenuItem speech = new ToolStripMenuItem("气泡台词") { CheckOnClick = true, Checked = prefs.Speech };
@@ -373,7 +447,12 @@ namespace WhalePet
             menu.Items.Add(speech);
 
             ToolStripMenuItem shadow = new ToolStripMenuItem("投影") { CheckOnClick = true, Checked = prefs.Shadow };
-            shadow.CheckedChanged += delegate { prefs.Shadow = shadow.Checked; SaveAndInvalidate(); };
+            shadow.CheckedChanged += delegate
+            {
+                prefs.Shadow = shadow.Checked;
+                if (videoOverlay != null && !videoOverlay.IsDisposed) videoOverlay.SetShadow(prefs.Shadow);
+                SaveAndInvalidate();
+            };
             menu.Items.Add(shadow);
 
             ToolStripMenuItem topmost = new ToolStripMenuItem("总在最前") { CheckOnClick = true, Checked = prefs.TopMost };
@@ -418,6 +497,8 @@ namespace WhalePet
                 int[] sizes = { 132, 176, 232 };
                 for (int i = 0; i < sizes.Length; i++)
                     ((ToolStripMenuItem)size.DropDownItems[i]).Checked = prefs.Size == sizes[i];
+                modeVideo.Checked = prefs.VideoMode;
+                modeStatic.Checked = !prefs.VideoMode;
             };
             quit.ForeColor = Color.FromArgb(183, 94, 120);
             ContextMenuStrip = menu;
@@ -533,6 +614,11 @@ namespace WhalePet
             WindowState = FormWindowState.Normal;
             Location = ClampToScreen(Location);
             TopMost = prefs.TopMost;
+            if (videoOverlay != null && !videoOverlay.IsDisposed && prefs.VideoMode)
+            {
+                videoOverlay.Visible = true;
+                videoOverlay.SyncBounds();
+            }
             BringToFront();
             Activate();
             Greet();
@@ -587,6 +673,10 @@ namespace WhalePet
         protected override void OnLocationChanged(EventArgs e)
         {
             base.OnLocationChanged(e);
+            if (videoOverlay != null && !videoOverlay.IsDisposed)
+            {
+                videoOverlay.SyncBounds();
+            }
             if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible)
             {
                 miniPanel.UpdatePosition(this);
@@ -596,6 +686,11 @@ namespace WhalePet
         protected override void OnVisibleChanged(EventArgs e)
         {
             base.OnVisibleChanged(e);
+            if (videoOverlay != null && !videoOverlay.IsDisposed)
+            {
+                videoOverlay.Visible = Visible && prefs.VideoMode;
+                if (Visible && prefs.VideoMode) videoOverlay.SyncBounds();
+            }
             if (!Visible && miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible)
             {
                 miniPanel.Hide();
@@ -605,6 +700,12 @@ namespace WhalePet
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             try { UnregisterHotKey(Handle, HOTKEY_ID); } catch { }
+            if (videoOverlay != null)
+            {
+                videoOverlay.Close();
+                videoOverlay.Dispose();
+                videoOverlay = null;
+            }
             if (trayIcon != null)
             {
                 trayIcon.Visible = false;
@@ -707,6 +808,7 @@ namespace WhalePet
         {
             int scaledWidth = (int)Math.Round(prefs.Size * 1.4);
             ClientSize = new Size(Math.Max(240, scaledWidth + 88), prefs.Size + 100);
+            if (videoOverlay != null && !videoOverlay.IsDisposed) videoOverlay.SyncBounds();
             if (IsHandleCreated) Location = ClampToScreen(Location);
         }
 
@@ -810,6 +912,10 @@ namespace WhalePet
             current = DateTime.Now < eatingUntil && poses.ContainsKey("eating") ? poses["eating"] : poses[name];
             ApplySize();
             Touch();
+            if (videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible)
+            {
+                videoOverlay.PlayState(name, true);
+            }
             Say(name == "front" ? "正面登场！" : name == "side" ? "从这边看也好看～" : "看我的鲸鱼尾巴！", 2000);
             SaveAndInvalidate();
             if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible) miniPanel.UpdatePosition(this);
@@ -820,6 +926,10 @@ namespace WhalePet
             if (!prefs.Speech || string.IsNullOrEmpty(text)) return;
             bubble = text;
             bubbleUntil = DateTime.Now.AddMilliseconds(milliseconds);
+            if (videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible)
+            {
+                videoOverlay.ShowBubble(text, milliseconds);
+            }
             Invalidate();
         }
 
@@ -847,6 +957,11 @@ namespace WhalePet
             activity = value;
             SelectDisplayPose();
             ApplySize();
+            if (videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible)
+            {
+                string key = (value == PetState.Normal) ? prefs.Pose : value.ToString().ToLowerInvariant();
+                videoOverlay.PlayState(key, true);
+            }
             RenderFrame();
             if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible) miniPanel.UpdatePosition(this);
         }
@@ -1001,6 +1116,11 @@ namespace WhalePet
                 eatingSince = DateTime.Now;
                 eatingUntil = eatingSince.AddSeconds(3);
                 SelectDisplayPose();
+                if (videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible)
+                {
+                    videoOverlay.PlayState("eating", true);
+                    videoOverlay.SpawnHearts();
+                }
                 RenderFrame();
                 Say("吃掉 " + result.Successful + " 个文件～\n饱腹 +" + gained + "（" + satiety.Value + "/100）"
                     + (result.Failed > 0 ? "\n" + result.Failed + " 个未回收" : ""), 5000);
@@ -1666,6 +1786,182 @@ namespace WhalePet
                 Log("FATAL: " + error);
                 throw;
             }
+        }
+    }
+
+    /// <summary>
+    /// 透明硬件加速视窗：使用 WebView2 呈现带 Alpha 通道的 WebM 视频与动态气泡。
+    /// 紧密跟随 PetForm 同步位置与尺寸，并透传鼠标事件给底层分层窗口。
+    /// </summary>
+    internal sealed class WebPetOverlay : Form
+    {
+        private readonly WebView2 browser;
+        private readonly Form ownerForm;
+        private bool initialized;
+        private bool initializing;
+        private string pendingState = "front";
+        private bool pendingLoop = true;
+        private string pendingBubble = null;
+        private int pendingBubbleDuration = 0;
+        private bool shadowVisible = true;
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOACTIVATE = 0x0010;
+
+        internal WebPetOverlay(Form owner)
+        {
+            ownerForm = owner;
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.Manual;
+            ShowInTaskbar = false;
+            TopMost = owner.TopMost;
+            BackColor = Color.Black;
+            ClientSize = owner.ClientSize;
+            Location = owner.Location;
+
+            browser = new WebView2
+            {
+                Dock = DockStyle.Fill,
+                DefaultBackgroundColor = Color.Transparent
+            };
+            Controls.Add(browser);
+
+            Shown += async delegate
+            {
+                SyncBounds();
+                await InitializeAsync();
+            };
+        }
+
+        protected override bool ShowWithoutActivation
+        {
+            get { return true; }
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW
+                cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+                cp.ExStyle |= 0x00000020; // WS_EX_TRANSPARENT: 鼠标点击完全穿透给底层 PetForm
+                return cp;
+            }
+        }
+
+        internal void SyncBounds()
+        {
+            if (IsDisposed || ownerForm == null || ownerForm.IsDisposed) return;
+            if (Location != ownerForm.Location || ClientSize != ownerForm.ClientSize)
+            {
+                Location = ownerForm.Location;
+                ClientSize = ownerForm.ClientSize;
+            }
+            if (TopMost != ownerForm.TopMost)
+            {
+                TopMost = ownerForm.TopMost;
+            }
+            try
+            {
+                SetWindowPos(Handle, ownerForm.Handle, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            catch { }
+        }
+
+        private async System.Threading.Tasks.Task InitializeAsync()
+        {
+            if (initializing || initialized || IsDisposed) return;
+            initializing = true;
+            try
+            {
+                string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DSHWhalePet", "WebView2");
+                Directory.CreateDirectory(data);
+                var environment = await CoreWebView2Environment.CreateAsync(null, data);
+                if (IsDisposed) return;
+                await browser.EnsureCoreWebView2Async(environment);
+                if (IsDisposed) return;
+
+                browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+                browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
+                browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
+
+                string htmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "art", "player.html");
+                if (File.Exists(htmlPath))
+                {
+                    browser.CoreWebView2.Navigate(new Uri(htmlPath).AbsoluteUri);
+                }
+
+                browser.CoreWebView2.NavigationCompleted += delegate
+                {
+                    initialized = true;
+                    if (!string.IsNullOrEmpty(pendingState))
+                        PlayState(pendingState, pendingLoop);
+                    if (!string.IsNullOrEmpty(pendingBubble))
+                        ShowBubble(pendingBubble, pendingBubbleDuration);
+                    SetShadow(shadowVisible);
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[pet] WebPetOverlay init error: " + ex.Message);
+            }
+            finally { initializing = false; }
+        }
+
+        internal void PlayState(string stateName, bool loop = true)
+        {
+            pendingState = stateName;
+            pendingLoop = loop;
+            if (!initialized || browser.CoreWebView2 == null) return;
+
+            string webmRelative = "webm/" + stateName.ToLowerInvariant() + ".webm";
+            string fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "art", webmRelative.Replace('/', '\\'));
+            if (!File.Exists(fullPath))
+            {
+                webmRelative = "webm/front.webm";
+            }
+
+            string json = string.Format("{{\"type\":\"play\",\"src\":\"{0}\",\"loop\":{1}}}",
+                webmRelative.Replace("\\", "/"), loop ? "true" : "false");
+            browser.CoreWebView2.PostWebMessageAsString(json);
+        }
+
+        internal void ShowBubble(string text, int durationMs = 3000)
+        {
+            pendingBubble = text;
+            pendingBubbleDuration = durationMs;
+            if (!initialized || browser.CoreWebView2 == null) return;
+
+            string escaped = (text ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
+            string json = string.Format("{{\"type\":\"bubble\",\"text\":\"{0}\",\"duration\":{1}}}", escaped, durationMs);
+            browser.CoreWebView2.PostWebMessageAsString(json);
+        }
+
+        internal void SpawnHearts()
+        {
+            if (!initialized || browser.CoreWebView2 == null) return;
+            browser.CoreWebView2.PostWebMessageAsString("{\"type\":\"hearts\"}");
+        }
+
+        internal void SetShadow(bool visible)
+        {
+            shadowVisible = visible;
+            if (!initialized || browser.CoreWebView2 == null) return;
+            string json = string.Format("{{\"type\":\"shadow\",\"visible\":{0}}}", visible ? "true" : "false");
+            browser.CoreWebView2.PostWebMessageAsString(json);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (browser != null) browser.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

@@ -24,6 +24,8 @@
     "desktop-pet/WebView2-LICENSE.txt",
     "desktop-pet/WebView2-NOTICE.txt",
     "desktop-pet/art/*.png",
+    "desktop-pet/art/player.html",
+    "desktop-pet/art/webm/*.webm",
     "desktop-pet/src/*.cs",
     "desktop-pet/tools/build-desktop-pet.ps1",
     "cordis.patch.yml",
