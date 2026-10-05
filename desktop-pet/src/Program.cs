@@ -29,6 +29,7 @@ namespace WhalePet
     {
         public string Name;
         public Bitmap Image;
+        public List<Bitmap> Frames = new List<Bitmap>();
         public Rectangle VisibleBounds;
         public float EyeY;        // fraction of image height, eye centre line
         public float EyeHeight;   // fraction of image height
@@ -56,6 +57,22 @@ namespace WhalePet
             EyeWidth = eyeWidth;
             LeftEyeX = leftEyeX;
             RightEyeX = rightEyeX;
+
+            // 加载外部动画序列 (若存在 art/frames/<name>/ 目录)
+            string dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                string framesDir = Path.Combine(dir, "frames", name);
+                if (Directory.Exists(framesDir))
+                {
+                    string[] files = Directory.GetFiles(framesDir, "*.png");
+                    Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+                    foreach (string f in files)
+                    {
+                        try { Frames.Add(LoadUnlocked(f)); } catch { }
+                    }
+                }
+            }
         }
 
         /// <summary>Read a PNG without keeping a file lock, so the app can be replaced while running.</summary>
@@ -90,7 +107,7 @@ namespace WhalePet
         public int Y = int.MinValue;
         public int Satiety = 60;
         public int SatietyElapsedMs;
-        public bool VideoMode = true;
+        public bool Animation = true;
 
         private static string FilePath
         {
@@ -121,7 +138,8 @@ namespace WhalePet
                         case "y": prefs.Y = ParseInt(value, prefs.Y); break;
                         case "satiety": prefs.Satiety = Math.Max(0, Math.Min(100, ParseInt(value, 60))); break;
                         case "satietyElapsedMs": prefs.SatietyElapsedMs = Math.Max(0, Math.Min(299999, ParseInt(value, 0))); break;
-                        case "videomode": prefs.VideoMode = value == "1"; break;
+                        case "animation": prefs.Animation = value == "1"; break;
+                        case "videomode": prefs.Animation = value == "1"; break;
                     }
                 }
             }
@@ -148,7 +166,7 @@ namespace WhalePet
                     "y=" + Y.ToString(CultureInfo.InvariantCulture),
                     "satiety=" + Satiety.ToString(CultureInfo.InvariantCulture),
                     "satietyElapsedMs=" + SatietyElapsedMs.ToString(CultureInfo.InvariantCulture),
-                    "videomode=" + (VideoMode ? "1" : "0")
+                    "animation=" + (Animation ? "1" : "0")
                 };
                 File.WriteAllLines(FilePath, lines, Encoding.UTF8);
             }
@@ -256,37 +274,13 @@ namespace WhalePet
         private DateTime eatingSince = DateTime.MinValue;
         private bool eatingVisible;
         private MiniPanel miniPanel;
-        private WebPetOverlay videoOverlay;
         private NotifyIcon trayIcon;
         internal bool HasHostPipe;
 
-        private bool IsVideoActive
-        {
-            get { return prefs != null && prefs.VideoMode && videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible; }
-        }
-
-        private void EnsureVideoOverlay()
-        {
-            if (!IsHandleCreated || IsDisposed) return;
-            if (string.IsNullOrEmpty(artDirectory)) return;
-            string webmDir = Path.Combine(artDirectory, "webm");
-            if (!Directory.Exists(webmDir) || !File.Exists(Path.Combine(webmDir, "front.webm"))) return;
-            if (videoOverlay == null || videoOverlay.IsDisposed)
-            {
-                try
-                {
-                    videoOverlay = new WebPetOverlay(this);
-                    videoOverlay.Show(this);
-                    videoOverlay.SetShadow(prefs.Shadow);
-                    string key = (activity == PetState.Normal) ? prefs.Pose : activity.ToString().ToLowerInvariant();
-                    videoOverlay.PlayState(key, true);
-                }
-                catch (Exception error)
-                {
-                    Console.Error.WriteLine("[pet] cannot initialize video overlay: " + error.Message);
-                }
-            }
-        }
+        // 眨眼状态机
+        private DateTime nextBlink = DateTime.Now.AddMilliseconds(2000);
+        private DateTime blinkStart = DateTime.MinValue;
+        private const int BlinkDurationMs = 160;
 
         private bool isTaskRunning = false;
         private DateTime lastTaskFinished = DateTime.MinValue;
@@ -325,11 +319,6 @@ namespace WhalePet
             current = poses.ContainsKey(prefs.Pose) ? poses[prefs.Pose] : poses["front"];
             ApplySize();
             RestorePosition();
-
-            Shown += delegate
-            {
-                if (prefs.VideoMode) EnsureVideoOverlay();
-            };
 
             animation = new Timer { Interval = 33 };
             animation.Tick += delegate { RenderFrame(); };
@@ -405,38 +394,29 @@ namespace WhalePet
             }
             menu.Items.Add(size);
 
-            ToolStripMenuItem renderMode = new ToolStripMenuItem("形象渲染");
-            ToolStripMenuItem modeVideo = new ToolStripMenuItem("动态 WebM 视频") { CheckOnClick = true, Checked = prefs.VideoMode };
-            ToolStripMenuItem modeStatic = new ToolStripMenuItem("经典静态立绘") { CheckOnClick = true, Checked = !prefs.VideoMode };
+            ToolStripMenuItem renderMode = new ToolStripMenuItem("角色动效");
+            ToolStripMenuItem modeDynamic = new ToolStripMenuItem("✨ 灵动活泼 (呼吸+眨眼+动效)") { CheckOnClick = true, Checked = prefs.Animation };
+            ToolStripMenuItem modeStatic = new ToolStripMenuItem("经典静态立绘") { CheckOnClick = true, Checked = !prefs.Animation };
 
-            modeVideo.Click += delegate
+            modeDynamic.Click += delegate
             {
-                if (prefs.VideoMode) return;
-                prefs.VideoMode = true;
-                modeVideo.Checked = true;
+                if (prefs.Animation) return;
+                prefs.Animation = true;
+                modeDynamic.Checked = true;
                 modeStatic.Checked = false;
-                EnsureVideoOverlay();
-                if (videoOverlay != null)
-                {
-                    videoOverlay.Visible = true;
-                    videoOverlay.SyncBounds();
-                    string key = (activity == PetState.Normal) ? prefs.Pose : activity.ToString().ToLowerInvariant();
-                    videoOverlay.PlayState(key, true);
-                }
                 SaveAndInvalidate();
             };
 
             modeStatic.Click += delegate
             {
-                if (!prefs.VideoMode) return;
-                prefs.VideoMode = false;
-                modeVideo.Checked = false;
+                if (!prefs.Animation) return;
+                prefs.Animation = false;
+                modeDynamic.Checked = false;
                 modeStatic.Checked = true;
-                if (videoOverlay != null) videoOverlay.Visible = false;
                 SaveAndInvalidate();
             };
 
-            renderMode.DropDownItems.Add(modeVideo);
+            renderMode.DropDownItems.Add(modeDynamic);
             renderMode.DropDownItems.Add(modeStatic);
             menu.Items.Add(renderMode);
 
@@ -450,7 +430,6 @@ namespace WhalePet
             shadow.CheckedChanged += delegate
             {
                 prefs.Shadow = shadow.Checked;
-                if (videoOverlay != null && !videoOverlay.IsDisposed) videoOverlay.SetShadow(prefs.Shadow);
                 SaveAndInvalidate();
             };
             menu.Items.Add(shadow);
@@ -497,8 +476,8 @@ namespace WhalePet
                 int[] sizes = { 132, 176, 232 };
                 for (int i = 0; i < sizes.Length; i++)
                     ((ToolStripMenuItem)size.DropDownItems[i]).Checked = prefs.Size == sizes[i];
-                modeVideo.Checked = prefs.VideoMode;
-                modeStatic.Checked = !prefs.VideoMode;
+                modeDynamic.Checked = prefs.Animation;
+                modeStatic.Checked = !prefs.Animation;
             };
             quit.ForeColor = Color.FromArgb(183, 94, 120);
             ContextMenuStrip = menu;
@@ -614,11 +593,6 @@ namespace WhalePet
             WindowState = FormWindowState.Normal;
             Location = ClampToScreen(Location);
             TopMost = prefs.TopMost;
-            if (videoOverlay != null && !videoOverlay.IsDisposed && prefs.VideoMode)
-            {
-                videoOverlay.Visible = true;
-                videoOverlay.SyncBounds();
-            }
             BringToFront();
             Activate();
             Greet();
@@ -673,10 +647,6 @@ namespace WhalePet
         protected override void OnLocationChanged(EventArgs e)
         {
             base.OnLocationChanged(e);
-            if (videoOverlay != null && !videoOverlay.IsDisposed)
-            {
-                videoOverlay.SyncBounds();
-            }
             if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible)
             {
                 miniPanel.UpdatePosition(this);
@@ -686,11 +656,6 @@ namespace WhalePet
         protected override void OnVisibleChanged(EventArgs e)
         {
             base.OnVisibleChanged(e);
-            if (videoOverlay != null && !videoOverlay.IsDisposed)
-            {
-                videoOverlay.Visible = Visible && prefs.VideoMode;
-                if (Visible && prefs.VideoMode) videoOverlay.SyncBounds();
-            }
             if (!Visible && miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible)
             {
                 miniPanel.Hide();
@@ -700,12 +665,6 @@ namespace WhalePet
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             try { UnregisterHotKey(Handle, HOTKEY_ID); } catch { }
-            if (videoOverlay != null)
-            {
-                videoOverlay.Close();
-                videoOverlay.Dispose();
-                videoOverlay = null;
-            }
             if (trayIcon != null)
             {
                 trayIcon.Visible = false;
@@ -808,7 +767,6 @@ namespace WhalePet
         {
             int scaledWidth = (int)Math.Round(prefs.Size * 1.4);
             ClientSize = new Size(Math.Max(240, scaledWidth + 88), prefs.Size + 100);
-            if (videoOverlay != null && !videoOverlay.IsDisposed) videoOverlay.SyncBounds();
             if (IsHandleCreated) Location = ClampToScreen(Location);
         }
 
@@ -912,10 +870,6 @@ namespace WhalePet
             current = DateTime.Now < eatingUntil && poses.ContainsKey("eating") ? poses["eating"] : poses[name];
             ApplySize();
             Touch();
-            if (videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible)
-            {
-                videoOverlay.PlayState(name, true);
-            }
             Say(name == "front" ? "正面登场！" : name == "side" ? "从这边看也好看～" : "看我的鲸鱼尾巴！", 2000);
             SaveAndInvalidate();
             if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible) miniPanel.UpdatePosition(this);
@@ -926,10 +880,6 @@ namespace WhalePet
             if (!prefs.Speech || string.IsNullOrEmpty(text)) return;
             bubble = text;
             bubbleUntil = DateTime.Now.AddMilliseconds(milliseconds);
-            if (videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible)
-            {
-                videoOverlay.ShowBubble(text, milliseconds);
-            }
             Invalidate();
         }
 
@@ -957,11 +907,6 @@ namespace WhalePet
             activity = value;
             SelectDisplayPose();
             ApplySize();
-            if (videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible)
-            {
-                string key = (value == PetState.Normal) ? prefs.Pose : value.ToString().ToLowerInvariant();
-                videoOverlay.PlayState(key, true);
-            }
             RenderFrame();
             if (miniPanel != null && !miniPanel.IsDisposed && miniPanel.Visible) miniPanel.UpdatePosition(this);
         }
@@ -1116,11 +1061,6 @@ namespace WhalePet
                 eatingSince = DateTime.Now;
                 eatingUntil = eatingSince.AddSeconds(3);
                 SelectDisplayPose();
-                if (videoOverlay != null && !videoOverlay.IsDisposed && videoOverlay.Visible)
-                {
-                    videoOverlay.PlayState("eating", true);
-                    videoOverlay.SpawnHearts();
-                }
                 RenderFrame();
                 Say("吃掉 " + result.Successful + " 个文件～\n饱腹 +" + gained + "（" + satiety.Value + "/100）"
                     + (result.Failed > 0 ? "\n" + result.Failed + " 个未回收" : ""), 5000);
@@ -1348,6 +1288,77 @@ namespace WhalePet
             // The complete ARGB surface is submitted via UpdateLayeredWindow.
         }
 
+        private float GetCurrentBlink()
+        {
+            if (!prefs.Animation) return 0f;
+            if (activity == PetState.Sleep) return 1.0f;
+            DateTime now = DateTime.Now;
+            if (now >= nextBlink && blinkStart == DateTime.MinValue)
+            {
+                blinkStart = now;
+            }
+            if (blinkStart != DateTime.MinValue)
+            {
+                double elapsed = (now - blinkStart).TotalMilliseconds;
+                if (elapsed >= BlinkDurationMs)
+                {
+                    blinkStart = DateTime.MinValue;
+                    nextBlink = now.AddMilliseconds(3000 + new Random().Next(2500));
+                    return 0f;
+                }
+                return (float)Math.Sin(elapsed / BlinkDurationMs * Math.PI);
+            }
+            return 0f;
+        }
+
+        private void DrawEyelids(Graphics graphics, int left, int top, int width, int height, float blink)
+        {
+            if (current == null || current.EyeWidth <= 0f) return;
+            int eyeCenterY = top + (int)(height * current.EyeY);
+            int eyeH = (int)(height * current.EyeHeight);
+            int eyeW = (int)(width * current.EyeWidth);
+            int leftEyeX = left + (int)(width * current.LeftEyeX);
+            int rightEyeX = left + (int)(width * current.RightEyeX);
+
+            DrawSingleEyeBlink(graphics, leftEyeX, eyeCenterY, eyeW, eyeH, blink, false);
+            if (current.RightEyeX > current.LeftEyeX)
+            {
+                DrawSingleEyeBlink(graphics, rightEyeX, eyeCenterY, eyeW, eyeH, blink, true);
+            }
+        }
+
+        private void DrawSingleEyeBlink(Graphics graphics, int eyeX, int eyeCenterY, int eyeW, int eyeH, float blink, bool isRight)
+        {
+            int eyeTop = eyeCenterY - eyeH / 2;
+            int coverH = (int)(eyeH * blink * 0.95f);
+            if (coverH <= 1) return;
+
+            Rectangle coverRect = new Rectangle(eyeX - 1, eyeTop - 1, eyeW + 2, coverH);
+            using (GraphicsPath skinPath = new GraphicsPath())
+            {
+                skinPath.AddEllipse(coverRect.X - 2, coverRect.Y - 2, coverRect.Width + 4, coverRect.Height + 4);
+                using (SolidBrush skinBrush = new SolidBrush(Color.FromArgb((int)(245 * Math.Min(1f, blink * 1.2f)), 255, 242, 236)))
+                {
+                    graphics.FillPath(skinBrush, skinPath);
+                }
+            }
+
+            if (blink > 0.35f)
+            {
+                float lashAlpha = Math.Min(255f, (blink - 0.35f) / 0.65f * 255f);
+                using (Pen lashPen = new Pen(Color.FromArgb((int)lashAlpha, 48, 42, 58), Math.Max(2.5f, eyeH * 0.08f)))
+                {
+                    lashPen.StartCap = LineCap.Round;
+                    lashPen.EndCap = LineCap.Round;
+                    int lineY = eyeTop + coverH;
+                    Point p1 = new Point(eyeX + 1, lineY - 2);
+                    Point p2 = new Point(eyeX + eyeW / 2, lineY + 3);
+                    Point p3 = new Point(eyeX + eyeW - 1, lineY - 2);
+                    graphics.DrawCurve(lashPen, new Point[] { p1, p2, p3 }, 0.4f);
+                }
+            }
+        }
+
         private void DrawScene(Graphics graphics)
         {
             graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
@@ -1364,6 +1375,37 @@ namespace WhalePet
 
             float rotation = SpriteRotation();
             double phase = (DateTime.Now - stateSince).TotalSeconds;
+
+            float breathScaleY = 1.0f;
+            float breathScaleX = 1.0f;
+            int hopY = 0;
+
+            if (prefs.Animation)
+            {
+                if (activity == PetState.Sleep)
+                {
+                    breathScaleY = 1.0f + (float)Math.Sin(phase * 1.5) * 0.012f;
+                    breathScaleX = 1.0f - (float)Math.Sin(phase * 1.5) * 0.006f;
+                }
+                else if (activity == PetState.Working)
+                {
+                    breathScaleY = 1.0f + (float)Math.Sin(phase * 4.0) * 0.010f;
+                    breathScaleX = 1.0f - (float)Math.Sin(phase * 4.0) * 0.005f;
+                }
+                else if (activity == PetState.Playing)
+                {
+                    hopY = (int)(Math.Abs(Math.Sin(phase * 3.5)) * 6);
+                    breathScaleY = 1.0f + (float)Math.Sin(phase * 3.5) * 0.020f;
+                    breathScaleX = 1.0f - (float)Math.Sin(phase * 3.5) * 0.010f;
+                }
+                else
+                {
+                    breathScaleY = 1.0f + (float)Math.Sin(phase * 2.2) * 0.016f;
+                    breathScaleX = 1.0f - (float)Math.Sin(phase * 2.2) * 0.008f;
+                }
+            }
+
+            int drawTop = top - hopY;
 
             if (prefs.Shadow)
             {
@@ -1383,16 +1425,34 @@ namespace WhalePet
                 }
             }
 
-            int drawTop = top;
+            int anchorX = left + width / 2;
+            int anchorY = drawTop + height;
 
             GraphicsState state = graphics.Save();
-            if (Math.Abs(rotation) > 0.01f)
+            graphics.TranslateTransform(anchorX, anchorY);
+            if (Math.Abs(rotation) > 0.01f) graphics.RotateTransform(rotation);
+            if (Math.Abs(breathScaleX - 1.0f) > 0.001f || Math.Abs(breathScaleY - 1.0f) > 0.001f)
+                graphics.ScaleTransform(breathScaleX, breathScaleY);
+            graphics.TranslateTransform(-anchorX, -anchorY);
+
+            Bitmap activeImage = current.Image;
+            if (prefs.Animation && current.Frames.Count > 0)
             {
-                graphics.TranslateTransform(left + width / 2f, drawTop + height);
-                graphics.RotateTransform(rotation);
-                graphics.TranslateTransform(-(left + width / 2f), -(drawTop + height));
+                int frameIdx = (int)((DateTime.Now.Ticks / (TimeSpan.TicksPerMillisecond * 33)) % current.Frames.Count);
+                activeImage = current.Frames[frameIdx];
             }
-            graphics.DrawImage(current.Image, new Rectangle(left, drawTop, width, height));
+
+            graphics.DrawImage(activeImage, new Rectangle(left, drawTop, width, height));
+
+            if (prefs.Animation && current.Frames.Count == 0 && current.EyeWidth > 0f)
+            {
+                float blink = GetCurrentBlink();
+                if (blink > 0.05f)
+                {
+                    DrawEyelids(graphics, left, drawTop, width, height, blink);
+                }
+            }
+
             graphics.Restore(state);
 
             if (spriteMask == null || spriteMask.Size != ClientSize)
@@ -1405,13 +1465,12 @@ namespace WhalePet
                 mask.Clear(Color.Transparent);
                 mask.InterpolationMode = graphics.InterpolationMode;
                 mask.PixelOffsetMode = graphics.PixelOffsetMode;
-                if (Math.Abs(rotation) > 0.01f)
-                {
-                    mask.TranslateTransform(left + width / 2f, drawTop + height);
-                    mask.RotateTransform(rotation);
-                    mask.TranslateTransform(-(left + width / 2f), -(drawTop + height));
-                }
-                mask.DrawImage(current.Image, new Rectangle(left, drawTop, width, height));
+                mask.TranslateTransform(anchorX, anchorY);
+                if (Math.Abs(rotation) > 0.01f) mask.RotateTransform(rotation);
+                if (Math.Abs(breathScaleX - 1.0f) > 0.001f || Math.Abs(breathScaleY - 1.0f) > 0.001f)
+                    mask.ScaleTransform(breathScaleX, breathScaleY);
+                mask.TranslateTransform(-anchorX, -anchorY);
+                mask.DrawImage(activeImage, new Rectangle(left, drawTop, width, height));
             }
 
             if (eatingVisible)
@@ -1788,180 +1847,5 @@ namespace WhalePet
             }
         }
     }
-
-    /// <summary>
-    /// 透明硬件加速视窗：使用 WebView2 呈现带 Alpha 通道的 WebM 视频与动态气泡。
-    /// 紧密跟随 PetForm 同步位置与尺寸，并透传鼠标事件给底层分层窗口。
-    /// </summary>
-    internal sealed class WebPetOverlay : Form
-    {
-        private readonly WebView2 browser;
-        private readonly Form ownerForm;
-        private bool initialized;
-        private bool initializing;
-        private string pendingState = "front";
-        private bool pendingLoop = true;
-        private string pendingBubble = null;
-        private int pendingBubbleDuration = 0;
-        private bool shadowVisible = true;
-
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-        private const uint SWP_NOMOVE = 0x0002;
-        private const uint SWP_NOSIZE = 0x0001;
-        private const uint SWP_NOACTIVATE = 0x0010;
-
-        internal WebPetOverlay(Form owner)
-        {
-            ownerForm = owner;
-            FormBorderStyle = FormBorderStyle.None;
-            StartPosition = FormStartPosition.Manual;
-            ShowInTaskbar = false;
-            TopMost = owner.TopMost;
-            BackColor = Color.Black;
-            ClientSize = owner.ClientSize;
-            Location = owner.Location;
-
-            browser = new WebView2
-            {
-                Dock = DockStyle.Fill,
-                DefaultBackgroundColor = Color.Transparent
-            };
-            Controls.Add(browser);
-
-            Shown += async delegate
-            {
-                SyncBounds();
-                await InitializeAsync();
-            };
-        }
-
-        protected override bool ShowWithoutActivation
-        {
-            get { return true; }
-        }
-
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                CreateParams cp = base.CreateParams;
-                cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW
-                cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
-                cp.ExStyle |= 0x00000020; // WS_EX_TRANSPARENT: 鼠标点击完全穿透给底层 PetForm
-                return cp;
-            }
-        }
-
-        internal void SyncBounds()
-        {
-            if (IsDisposed || ownerForm == null || ownerForm.IsDisposed) return;
-            if (Location != ownerForm.Location || ClientSize != ownerForm.ClientSize)
-            {
-                Location = ownerForm.Location;
-                ClientSize = ownerForm.ClientSize;
-            }
-            if (TopMost != ownerForm.TopMost)
-            {
-                TopMost = ownerForm.TopMost;
-            }
-            try
-            {
-                SetWindowPos(Handle, ownerForm.Handle, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            }
-            catch { }
-        }
-
-        private async System.Threading.Tasks.Task InitializeAsync()
-        {
-            if (initializing || initialized || IsDisposed) return;
-            initializing = true;
-            try
-            {
-                string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DSHWhalePet", "WebView2");
-                Directory.CreateDirectory(data);
-                var environment = await CoreWebView2Environment.CreateAsync(null, data);
-                if (IsDisposed) return;
-                await browser.EnsureCoreWebView2Async(environment);
-                if (IsDisposed) return;
-
-                browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-                browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
-                browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
-
-                string htmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "art", "player.html");
-                if (File.Exists(htmlPath))
-                {
-                    browser.CoreWebView2.Navigate(new Uri(htmlPath).AbsoluteUri);
-                }
-
-                browser.CoreWebView2.NavigationCompleted += delegate
-                {
-                    initialized = true;
-                    if (!string.IsNullOrEmpty(pendingState))
-                        PlayState(pendingState, pendingLoop);
-                    if (!string.IsNullOrEmpty(pendingBubble))
-                        ShowBubble(pendingBubble, pendingBubbleDuration);
-                    SetShadow(shadowVisible);
-                };
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine("[pet] WebPetOverlay init error: " + ex.Message);
-            }
-            finally { initializing = false; }
-        }
-
-        internal void PlayState(string stateName, bool loop = true)
-        {
-            pendingState = stateName;
-            pendingLoop = loop;
-            if (!initialized || browser.CoreWebView2 == null) return;
-
-            string webmRelative = "webm/" + stateName.ToLowerInvariant() + ".webm";
-            string fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "art", webmRelative.Replace('/', '\\'));
-            if (!File.Exists(fullPath))
-            {
-                webmRelative = "webm/front.webm";
-            }
-
-            string json = string.Format("{{\"type\":\"play\",\"src\":\"{0}\",\"loop\":{1}}}",
-                webmRelative.Replace("\\", "/"), loop ? "true" : "false");
-            browser.CoreWebView2.PostWebMessageAsString(json);
-        }
-
-        internal void ShowBubble(string text, int durationMs = 3000)
-        {
-            pendingBubble = text;
-            pendingBubbleDuration = durationMs;
-            if (!initialized || browser.CoreWebView2 == null) return;
-
-            string escaped = (text ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
-            string json = string.Format("{{\"type\":\"bubble\",\"text\":\"{0}\",\"duration\":{1}}}", escaped, durationMs);
-            browser.CoreWebView2.PostWebMessageAsString(json);
-        }
-
-        internal void SpawnHearts()
-        {
-            if (!initialized || browser.CoreWebView2 == null) return;
-            browser.CoreWebView2.PostWebMessageAsString("{\"type\":\"hearts\"}");
-        }
-
-        internal void SetShadow(bool visible)
-        {
-            shadowVisible = visible;
-            if (!initialized || browser.CoreWebView2 == null) return;
-            string json = string.Format("{{\"type\":\"shadow\",\"visible\":{0}}}", visible ? "true" : "false");
-            browser.CoreWebView2.PostWebMessageAsString(json);
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                if (browser != null) browser.Dispose();
-            }
-            base.Dispose(disposing);
-        }
-    }
 }
+
